@@ -6,9 +6,15 @@ import os.path
 import math
 
 from processor import Processor
+from typing import Union, Tuple, Any
+import signal_generation
 
 
-def to_pretty_str(val):
+def to_pretty_str(val) -> str:
+	"""Convert float into nicely formatted string
+
+	If another type is given, just calls str(val)
+	"""
 	if type(val) == float:
 		s = '%.6f' % val
 		while s.endswith('0'):
@@ -20,43 +26,60 @@ def to_pretty_str(val):
 		return str(val)
 
 
-def approx_equal(val1, val2, eps=0.0001):
+def approx_equal(*args, eps=0.0001, rel=False) -> bool:
+	"""Compare 2 values for equality within threshold
+	Meant for floats, but will work with int as well
+
+	:param args: values to be compared
+	:param eps: comparison threshold
+	:param rel: if true, operation is performed in log domain, and eps is relative to log2
+	:return: True if values are within eps of each other
+	"""
+
+	if len(args) == 1:
+		if np.isscalar(args[0]):
+			raise ValueError('Must give array_like, or more than 1 argument!')
+		else:
+			val1, val2 = np.amin(args[0]), np.amax(args[0])
+	elif len(args) == 2:
+		val1, val2 = args
+	else:
+		val1, val2 = np.amin(args), np.amax(args)
+
+	if rel:
+		if val1 == 0.0 or val2 == 0.0:
+			raise ZeroDivisionError("Cannot call approx_equal(rel=True) for value 0")
+
+		if (val1 > 0) != (val2 > 0):
+			return False
+
+		val1 = math.log2(abs(val1))
+		val2 = math.log2(abs(val2))
+
 	return abs(val1 - val2) < eps
 
 
-def approx_equal_rel(val1, val2, eps=0.0001):
-	if val1 == 0.0 or val2 == 0.0:
-		raise ZeroDivisionError("Cannot call approx_equal_rel for value == 0")
-	
-	if (val1 > 0) != (val2 > 0):
-		return False
-
-	return approx_equal(
-		math.log2(abs(val1)),
-		math.log2(abs(val2)),
-		eps=eps)
-
-
-def sgn(x):
+def sgn(x: Union[float, int, np.ndarray]) -> Union[float, int, np.ndarray]:
 	return np.sign(x)
 
 
-def lerp(v1, v2, x):
-	return (1.-x)*v1 + x*v2
+def clip(val, range: Tuple[Any, Any]):
+	if range[1] < range[0]:
+		raise ValueError('range[1] must be > range[0]')
+	return np.clip(val, range[0], range[1])
 
 
-def log_lerp(v1, v2, x):
-	lv = (1.-x)*math.log(v1) + x*math.log(v2)
-	return math.exp(lv)
+def lerp(vals: Tuple[Any, Any], x: float, clip=False):
+	if clip:
+		x = np.clip(x, 0.0, 1.0)
+	return (1.-x)*vals[0] + x*vals[1]
 
 
-def clip(val, range):
-	if val < range[0]:
-		return range[0]
-	elif val > range[1]:
-		return range[1]
-	else:
-		return val
+def log_lerp(vals: Tuple[Any, Any], x: float, clip=False) -> float:
+	if clip:
+		x = np.clip(x, 0.0, 1.0)
+	lv = (1.-x)*math.log2(vals[0]) + x*math.log2(vals[1])
+	return 2.0 ** lv
 
 
 # Wrap value to range [-0.5, 0.5)
@@ -64,16 +87,17 @@ def wrap05(val):
 	return (val + 0.5) % 1.0 - 0.5
 
 
+# inline unit tests
 assert approx_equal(wrap05(0.6), -0.4)
 assert approx_equal(wrap05(-0.6), 0.4)
 
 
-def to_dB(val_lin):
+def to_dB(val_lin: Union[float, int]) -> float:
 	return 20.0*np.log10(val_lin)
 
 
-def from_dB(val_dB):
-	return np.power(10.0, val_dB/20.0)
+def from_dB(val_dB: Union[float, int]) -> float:
+	return np.power(10.0, val_dB / 20.0)
 
 
 def rms(vec, dB=False):
@@ -83,49 +107,20 @@ def rms(vec, dB=False):
 	return y
 
 
-def phase_to_sine(phase):
-	return np.sin(phase * 2.0 * math.pi)
-
-
-def phase_to_cos(phase):
-	return phase_to_sine((phase + 0.25) % 1.0)
-
-
-def gen_phase(freq, n_samp, start_phase=0.0):
-	
-	if (freq <= 0.0) or (freq >= 0.5):
-		print("Warning: freq out of range %f" % freq)
-
-	# This could be vectorized
-	ph = np.zeros(n_samp)
-	phase = start_phase
-
-	# TODO: vectorize this
-	for n in range(n_samp):
-		ph[n] = phase
-		phase += freq
-	
-	ph = np.mod(ph, 1.0)
-	
-	return ph
-
-
-def gen_sine(freq, n_samp, start_phase=0.0):
-	phase = gen_phase(freq, n_samp, start_phase=start_phase)
-	return phase_to_sine(phase)
-
-
-def gen_square(freq, n_samp):
-	p = gen_phase(freq, n_samp)
-	return ((p >= 0.5) * 2 - 1).astype(float)
-
-
 def normalize(vec):
 	peak = np.amax(np.abs(vec))
-	return vec / peak
+	if peak == 0:
+		return vec
+	else:
+		return vec / peak
 
 
-def import_wavfile(filename):
+def import_wavfile(filename) -> Tuple[np.ndarray, int]:
+	"""Import wav file and normalize to float values in range [-1, 1)
+
+	:param filename:
+	:return: data, sample rate (Hz)
+	"""
 	if not os.path.exists(filename):
 		raise FileNotFoundError(filename)
 	
@@ -134,22 +129,19 @@ def import_wavfile(filename):
 	# Convert to range (-1,1)
 
 	if data.dtype == np.dtype('int8'):
-		return sample_rate, data.astype('float') / 128.0
+		data = data.astype('float') / 128.0
 	elif data.dtype == np.dtype('uint8'):
-		return sample_rate, (data.astype('float') - 128.0) / 128.0
+		data = (data.astype('float') - 128.0) / 128.0
 	elif data.dtype == np.dtype('int16'):
-		return sample_rate, data.astype('float') / float(2**15)
+		data = data.astype('float') / float(2**15)
 	elif data.dtype == np.dtype('int32'):
-		return sample_rate, data.astype('float') / float(2**31)
+		data = data.astype('float') / float(2**31)
 	elif data.dtype == np.dtype('float'):
-		return sample_rate, data
+		pass
 	else:
 		raise ValueError('Unknown data type: %s' % data.dtype)
 
-
-def gen_cos_sine(freq, n_samp):
-	ph = gen_phase(freq, n_samp)
-	return phase_to_cos(ph), phase_to_sine(ph)
+	return data, sample_rate
 
 
 def _single_freq_dft(x, cos_sig, sin_sig, return_mag_phase=True):
@@ -166,12 +158,8 @@ def _single_freq_dft(x, cos_sig, sin_sig, return_mag_phase=True):
 		return xs
 
 
-def single_freq_dft(x: np.array, freq: float, return_mag_phase=True):
-
-	ph_sin = gen_phase(freq, len(x))
-	ph_cos = (ph_sin + 0.25) % 1.0
-
-	cos_sig, sin_sig = gen_cos_sine(freq, len(x))
+def single_freq_dft(x: np.ndarray, freq: float, return_mag_phase=True):
+	cos_sig, sin_sig = signal_generation.gen_cos_sine(freq, len(x))
 	return _single_freq_dft(x, cos_sig, sin_sig, return_mag_phase=return_mag_phase)
 
 
@@ -208,7 +196,7 @@ def get_freq_response(system: Processor, freqs, sample_rate, n_samp=None, n_cycl
 		else:
 			n_samp_this_freq = n_samp
 
-		x_cos, x_sin = gen_cos_sine(f_norm, n_samp_this_freq)
+		x_cos, x_sin = signal_generation.gen_cos_sine(f_norm, n_samp_this_freq)
 
 		# Use sine signal since it starts at 0 - less prone to problems from nonlinearities
 		x = x_sin

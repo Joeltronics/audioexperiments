@@ -10,9 +10,20 @@ from typing import Tuple, List
 from utils import *
 
 
+# TODO: many of these could have much more efficient process_vector using scipy.signal.lfilter
+# would need to deal with state updates with zi and zf
+
+
 class Filter(Processor):
-	def set_freq(self, wc):
+	def set_freq(self, wc: float):
+		"""Set filter cutoff frequency
+
+		:param wc: normalized cutoff frequency, i.e. cutoff / sample rate
+		"""
 		raise NotImplementedError('set_freq() to be implemented by the child class!')
+
+	def process_sample(self, sample: float) -> float:
+		raise NotImplementedError('process_sample() to be implemented by the child class!')
 
 
 class CascadedFilters(Filter):
@@ -20,28 +31,25 @@ class CascadedFilters(Filter):
 		self.filters = filters
 	
 	def reset(self):
-		[f.reset() for f in self.filters]
+		for f in self.filters:
+			f.reset()
 
 	def set_freq(self, wc, **kwargs):
-		[f.set_freq(wc, **kwargs) for f in self.filters]
+		for f in self.filters:
+			f.set_freq(wc, **kwargs)
 
 	def process_sample(self, x):
 		y = x
-		for filt in self.filters:
-			y = filt.process_sample(y)
-		return y
-	
-	def process_vector(self, vec: np.array) -> np.array:
-		y = np.zeros_like(vec)
-		for n, x in enumerate(vec):
-			for m, filt in enumerate(self.filters):
-				y[n] = filt.process_sample(x if m == 0 else y[n])
+		for f in self.filters:
+			y = f.process_sample(y)
 		return y
 
 
 class BasicOnePole(Filter):
 	def __init__(self, wc, verbose=False):
 		self.z1 = 0.0
+		self.a1 = 0.0
+		self.b0 = 0.0
 		self.set_freq(wc)
 		if verbose:
 			print('Basic one pole filter: wc=%f, a1=%f, b0=%f' % (wc, self.a1, self.b0))
@@ -74,11 +82,16 @@ class BasicOnePoleHighpass(Filter):
 	def process_sample(self, x):
 		return x - self.lpf.process_sample(x)
 
+	def process_vector(self, vec):
+		return vec - self.lpf.process_vector(vec)
+
 
 class TrapzOnePole(Filter):
 	
 	def __init__(self, wc, verbose=False):
 		self.s = 0.0
+		self.g = 0.0
+		self.multiplier = 0.0
 		self.set_freq(wc)
 		if verbose:
 			print('Trapezoid filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi*wc))
@@ -90,26 +103,14 @@ class TrapzOnePole(Filter):
 		pi_wc = pi*wc
 		self.g = tan(pi_wc)
 		self.multiplier = 1.0 / (self.g + 1.0)
-	
-	def process_vector(self, inputSig):
-		
-		y = np.zeros_like(inputSig)
-		
-		for n, x in enumerate(inputSig):
-			
-			# y = g*(x - y) + s
-			#   = g*x - g*y + s
-			#   = (g*x + s) / (g + 1)
-			#   = m * (g*x + s)
-			
-			yn = self.multiplier * (self.g*x + self.s)
-			
-			self.s = 2.0*yn - self.s
-			y[n] = yn
-		
-		return y
-	
+
 	def process_sample(self, x):
+
+		# y = g*(x - y) + s
+		#   = g*x - g*y + s
+		#   = (g*x + s) / (g + 1)
+		#   = m * (g*x + s)
+
 		y = self.multiplier * (self.g*x + self.s)
 		self.s = 2.0*y - self.s
 		return y
@@ -131,6 +132,8 @@ class TrapzOnePoleHighpass(TrapzOnePole):
 
 class BiquadFilter(Processor):
 	def __init__(self, a: Tuple[float, float, float], b: Tuple[float, float, float]):
+		self.a1 = self.a2 = 0.0
+		self.b0 = self.b1 = self.b2 = 0.0
 		self.set_coeffs(a, b)
 
 		# Previous 2 inputs
@@ -177,32 +180,34 @@ class BiquadFilter(Processor):
 		
 		return y
 
+	# TODO: could add much more efficient process_vector using scipy.signal.lfilter
+
+
+# would need to deal with state updates with zi and zf
+
 
 class BiquadLowpass(BiquadFilter):
 	
 	def __init__(self, wc, Q=0.5, verbose=False):
-		self.x1 = self.x2 = 0.0
-		self.y1 = self.y2 = 0.0
 		self.Q = Q
-		self.set_freq(wc, Q)
-		
+		a, b = self._get_coeffs(wc, self.Q)
+		super().__init__(a, b)
+
 		if verbose:
 			print('Biquad lowpass filter: wc=%f, Q=%.2f, A:[1, %f, %f], B:[%f, %f, %f]' % (
 				wc, self.Q,
 				self.a1, self.a2,
 				self.b0, self.b1, self.b2))
 
-	def set_freq(self, wc, Q=None):
-
-		if Q is not None:
-			self.Q = Q
+	@staticmethod
+	def _get_coeffs(wc, Q):
 
 		# Formulae from audio EQ cookbook
 		# http://www.musicdsp.org/files/Audio-EQ-Cookbook.txt
 
 		w0 = 2.0*pi * wc
 
-		alpha = sin(w0)/(2.0*self.Q)
+		alpha = sin(w0)/(2.0*Q)
 
 		b0 = (1.0 - cos(w0))/2.0
 		b1 =  1.0 - cos(w0)
@@ -211,34 +216,38 @@ class BiquadLowpass(BiquadFilter):
 		a1 = -2.0*cos(w0)
 		a2 =  1.0 - alpha
 
-		self.set_coeffs((a0, a1, a2), (b0, b1, b2))
+		return (a0, a1, a2), (b0, b1, b2)
+
+	def set_freq(self, wc, Q=None):
+
+		if Q is not None:
+			self.Q = Q
+
+		a, b = self._get_coeffs(wc, self.Q)
+		self.set_coeffs(a, b)
 
 
 class BiquadHighpass(BiquadFilter):
 	
 	def __init__(self, wc, Q=0.5, verbose=False):
-		self.x1 = self.x2 = 0.0
-		self.y1 = self.y2 = 0.0
 		self.Q = Q
-		self.set_freq(wc, Q)
+		a, b = self._get_coeffs(wc, self.Q)
+		super().__init__(a, b)
 		
 		if verbose:
 			print('Biquad highpass filter: wc=%f, Q=%.2f, A:[1, %f, %f], B:[%f, %f, %f]' % (
 				wc, self.Q,
 				self.a1, self.a2,
 				self.b0, self.b1, self.b2))
-	
-	def set_freq(self, wc, Q=None):
 
-		if Q is not None:
-			self.Q = Q
-
+	@staticmethod
+	def _get_coeffs(wc, Q):
 		# Formulae from audio EQ cookbook
 		# http://www.musicdsp.org/files/Audio-EQ-Cookbook.txt
 
 		w0 = 2.0*pi * wc
 
-		alpha = sin(w0)/(2.0*self.Q)
+		alpha = sin(w0)/(2.0*Q)
 
 		b0 =  (1.0 + cos(w0))/2.0
 		b1 = -(1.0 + cos(w0))
@@ -247,34 +256,39 @@ class BiquadHighpass(BiquadFilter):
 		a1 =  -2.0*cos(w0)
 		a2 =   1.0 - alpha
 
-		self.set_coeffs((a0, a1, a2), (b0, b1, b2))
-
-
-class BiquadBandpass(BiquadFilter):
-	def __init__(self, wc, Q=0.5, peak_0dB=False, verbose=False):
-		self.x1 = self.x2 = 0.0
-		self.y1 = self.y2 = 0.0
-		self.Q = Q
-		self.peak_0dB = peak_0dB
-		self.set_freq(wc, Q)
-
-		if verbose:
-			print('Biquad highpass filter: wc=%f, Q=%.2f, A:[1, %f, %f], B:[%f, 0, %f]' % (
-				wc, self.Q,
-				self.a1, self.a2,
-				self.b0, self.b2))
+		return (a0, a1, a2), (b0, b1, b2)
 
 	def set_freq(self, wc, Q=None):
 
 		if Q is not None:
 			self.Q = Q
 
+		a, b = self._get_coeffs(wc, self.Q)
+		self.set_coeffs(a, b)
+
+
+class BiquadBandpass(BiquadFilter):
+	def __init__(self, wc, Q=0.5, peak_0dB=False, verbose=False):
+		self.Q = Q
+		self.peak_0dB = peak_0dB
+		a, b = self._get_coeffs(wc, self.Q, self.peak_0dB)
+		super().__init__(a, b)
+
+		if verbose:
+			print('Biquad bandpass filter: wc=%f, Q=%.2f, A:[1, %f, %f], B:[%f, 0, %f]' % (
+				wc, self.Q,
+				self.a1, self.a2,
+				self.b0, self.b2))
+
+	@staticmethod
+	def _get_coeffs(wc, Q, peak_0dB):
+
 		# Formulae from audio EQ cookbook
 		# http://www.musicdsp.org/files/Audio-EQ-Cookbook.txt
 
 		w0 = 2.0*pi * wc
 
-		alpha = sin(w0)/(2.0*self.Q)
+		alpha = sin(w0)/(2.0*Q)
 
 		b0 =  alpha
 		b1 =  0.0
@@ -283,11 +297,19 @@ class BiquadBandpass(BiquadFilter):
 		a1 = -2.0*cos(w0)
 		a2 =  1.0 - alpha
 
-		if not self.peak_0dB:
-			b0 *= self.Q
-			b2 *= self.Q
+		if not peak_0dB:
+			b0 *= Q
+			b2 *= Q
 
-		self.set_coeffs((a0, a1, a2), (b0, b1, b2))
+		return (a0, a1, a2), (b0, b1, b2)
+
+	def set_freq(self, wc, Q=None):
+
+		if Q is not None:
+			self.Q = Q
+
+		a, b = self._get_coeffs(wc, self.Q, self.peak_0dB)
+		self.set_coeffs(a, b)
 
 
 class HigherOrderFilter(Processor):
@@ -322,30 +344,6 @@ class HigherOrderFilter(Processor):
 		return y
 
 
-"""
-class ButterworthLowpass(HigherOrderFilter):
-	def __init__(self, wc, order=4, verbose=False):
-		# TODO: use "sos" format and cascaded biquads for better numerical stability
-		b, a = scipy.signal.butter(order, wc*2.0, btype='lowpass', analog=False)
-		super().__init__(order=order, a=a, b=b)
-	
-	def set_freq(self, wc):
-		b, a = scipy.signal.butter(self.order, wc, btype='lowpass', analog=False)
-		self.set_coeffs(a, b)
-
-
-class ButterworthHighpass(HigherOrderFilter):
-	def __init__(self, wc, order=4, verbose=False):
-		# TODO: use "sos" format and cascaded biquads for better numerical stability
-		b, a = scipy.signal.butter(order, wc*2.0, btype='highpass')
-		super().__init__(order=order, a=a, b=b)
-	
-	def set_freq(self, wc):
-		b, a = scipy.signal.butter(self.order, wc, btype='highpass')
-		self.set_coeffs(a, b)
-"""
-
-
 class ButterworthLowpass(Filter):
 	def __init__(self, wc, order=4, cascade_sos=True, verbose=False):
 		self.order = order
@@ -368,7 +366,7 @@ class ButterworthLowpass(Filter):
 				) for n in range(sos.shape[0])
 			])
 		else:
-			b, a = scipy.signal.butter(self.order, wc*2.0, btype='lowpass', analog=False)
+			b, a = scipy.signal.butter(self.order, wc*2.0, btype='lowpass', analog=False, output="ba")
 			self.filt = HigherOrderFilter(self.order, a, b)
 
 	def process_sample(self, x):
@@ -400,7 +398,7 @@ class ButterworthHighpass(Filter):
 				) for n in range(sos.shape[0])
 			])
 		else:
-			b, a = scipy.signal.butter(self.order, wc*2.0, btype='highpass', analog=False)
+			b, a = scipy.signal.butter(self.order, wc*2.0, btype='highpass', analog=False, output="ba")
 			self.filt = HigherOrderFilter(self.order, a, b)
 
 	def process_sample(self, x):
@@ -413,8 +411,10 @@ class ButterworthHighpass(Filter):
 class LeakyIntegrator(Filter):
 	def __init__(self, wc, w_norm=None, verbose=False):
 		"""
-		w_norm: frequency at which gain will be normalized to 0 dB
-		Note: only accurate assuming w_norm >> wc
+
+		:param wc: normalized cutoff frequency (cutoff / sample rate)
+		:param w_norm: frequency at which gain will be normalized to 0 dB; only accurate if w_norm >> wc
+		:param verbose:
 		"""
 
 		self.z1 = 0.0
@@ -439,12 +439,11 @@ class LeakyIntegrator(Filter):
 			self.gain = from_dB(decades_above_w_norm * 20.0)
 
 	def process_sample(self, x):
-		# FIXME: I think I need to multiply x by 1-alpha
 		self.z1 = self.alpha*self.z1 + x*self.one_minus_alpha
 		return self.gain * self.z1
 
 
-def main():
+if __name__ == "__main__":
 	import utils
 	from matplotlib import pyplot as plt
 	import argparse
@@ -661,7 +660,3 @@ def main():
 		plt.xlabel('Freq')
 
 	plt.show()
-
-
-if __name__ == "__main__":
-	main()
