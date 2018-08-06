@@ -8,6 +8,9 @@ import math
 from processor import Processor
 from typing import Union, Tuple, Any
 import signal_generation
+from approx_equal import *
+
+_unit_tests = []
 
 
 def to_pretty_str(val) -> str:
@@ -26,53 +29,73 @@ def to_pretty_str(val) -> str:
 		return str(val)
 
 
-def approx_equal(*args, eps=0.0001, rel=False) -> bool:
-	"""Compare 2 values for equality within threshold
-	Meant for floats, but will work with int as well
+def _test_to_pretty_str():
+	assert to_pretty_str(1) == '1'
+	assert to_pretty_str(0) == '0'
+	assert to_pretty_str(-12345) == '-12345'
+	assert to_pretty_str(1.00000001) == '1.0'
+	assert to_pretty_str(0.0) == '0.0'
+	assert to_pretty_str(0.00000001) == '0.0'
 
-	:param args: values to be compared
-	:param eps: comparison threshold
-	:param rel: if true, operation is performed in log domain, and eps is relative to log2
-	:return: True if values are within eps of each other
-	"""
 
-	if len(args) == 1:
-		if np.isscalar(args[0]):
-			raise ValueError('Must give array_like, or more than 1 argument!')
-		else:
-			val1, val2 = np.amin(args[0]), np.amax(args[0])
-	elif len(args) == 2:
-		val1, val2 = args
-	else:
-		val1, val2 = np.amin(args), np.amax(args)
-
-	if rel:
-		if val1 == 0.0 or val2 == 0.0:
-			raise ZeroDivisionError("Cannot call approx_equal(rel=True) for value 0")
-
-		if (val1 > 0) != (val2 > 0):
-			return False
-
-		val1 = math.log2(abs(val1))
-		val2 = math.log2(abs(val2))
-
-	return abs(val1 - val2) < eps
+_unit_tests.append(_test_to_pretty_str)
 
 
 def sgn(x: Union[float, int, np.ndarray]) -> Union[float, int, np.ndarray]:
 	return np.sign(x)
 
 
+def _test_sgn():
+	assert sgn(2) == 1
+	assert sgn(2.0) == 1.0
+
+	assert sgn(-2) == -1
+	assert sgn(-2.0) == -1.0
+
+	assert sgn(0) == 0
+	assert sgn(0.0) == 0.0
+
+
+_unit_tests.append(_test_sgn)
+
+
 def clip(val, range: Tuple[Any, Any]):
 	if range[1] < range[0]:
-		raise ValueError('range[1] must be > range[0]')
+		raise ValueError('range[1] must be >= range[0]')
 	return np.clip(val, range[0], range[1])
 
 
-def lerp(vals: Tuple[Any, Any], x: float, clip=False):
+def _test_clip():
+	assert clip(1, (2, 4)) == 2
+	assert clip(3, (2, 4)) == 3
+	assert clip(5, (2, 4)) == 4
+
+	assert clip(-2.0, (-1.0001, 1.0002)) == -1.0001
+
+	for val in [-1, 0, 1, -1.0, 0.0, 1.0, 17.365, -17.365, 9999999999, 9999999999.0, -9999999999.0]:
+		assert clip(val, (27.3, 27.3)) == 27.3
+
+
+_unit_tests.append(_test_clip)
+
+
+def lerp(vals: Tuple[Any, Any], x: float, clip=False) -> float:
 	if clip:
 		x = np.clip(x, 0.0, 1.0)
 	return (1.-x)*vals[0] + x*vals[1]
+
+
+def _test_lerp():
+	assert approx_equal(lerp((10, 20), 0.0), 10.0)
+	assert approx_equal(lerp((10, 20), 0.5), 15.0)
+	assert approx_equal(lerp((10, 20), 1.0), 20.0)
+	assert approx_equal(lerp((10, 20), 1.5, clip=True), 20.0)
+	assert approx_equal(lerp((10, 20), 1.5, clip=False), 25.0)
+	assert approx_equal(lerp((10, 20), -0.5, clip=True), 10.0)
+	assert approx_equal(lerp((10, 20), -0.5, clip=False), 5.0)
+
+
+_unit_tests.append(_test_lerp)
 
 
 def log_lerp(vals: Tuple[Any, Any], x: float, clip=False) -> float:
@@ -82,14 +105,32 @@ def log_lerp(vals: Tuple[Any, Any], x: float, clip=False) -> float:
 	return 2.0 ** lv
 
 
+def _test_log_lerp():
+	assert approx_equal(log_lerp((10., 100.), 0.0), 10.)
+	assert approx_equal(log_lerp((10., 100.), 0.5), 31.62, eps=0.005)
+	assert approx_equal(log_lerp((10., 100.), 1.0), 100.)
+	assert approx_equal(log_lerp((10., 100.), 2.0, clip=True), 100.)
+	assert approx_equal(log_lerp((10., 100.), 2.0, clip=False), 1000.)
+	assert approx_equal(log_lerp((10., 100.), -1.0, clip=True), 10.)
+	assert approx_equal(log_lerp((10., 100.), -1.0, clip=False), 1.)
+
+
+_unit_tests.append(_test_log_lerp)
+
+
 # Wrap value to range [-0.5, 0.5)
 def wrap05(val):
 	return (val + 0.5) % 1.0 - 0.5
 
 
-# inline unit tests
-assert approx_equal(wrap05(0.6), -0.4)
-assert approx_equal(wrap05(-0.6), 0.4)
+def _test_wrap05():
+	assert approx_equal(wrap05(0.6), -0.4)
+	for val in [-0.5, -0.1, 0.0, 0.1, 0.45]:
+		assert approx_equal(wrap05(val), val)
+	assert approx_equal(wrap05(-0.6), 0.4)
+
+
+_unit_tests.append(_test_wrap05)
 
 
 def to_dB(val_lin: Union[float, int]) -> float:
@@ -100,11 +141,43 @@ def from_dB(val_dB: Union[float, int]) -> float:
 	return np.power(10.0, val_dB / 20.0)
 
 
+def _test_dB():
+	def test(lin, dB):
+		assert approx_equal(lin, from_dB(dB))
+		assert approx_equal(dB, to_dB(lin))
+		assert approx_equal(lin, from_dB(to_dB(lin)))
+		assert approx_equal(dB, to_dB(from_dB(dB)))
+
+	double_amp_dB = 20.0 * math.log10(2.0)
+	assert approx_equal(double_amp_dB, 6.02, eps=0.005)  # Test the unit test logic itself
+
+	test(1.0, 0.0)
+	test(2.0, double_amp_dB)
+	test(0.5, -double_amp_dB)
+
+
+_unit_tests.append(_test_dB)
+
+
 def rms(vec, dB=False):
 	y = np.sqrt(np.mean(np.square(vec)))
 	if dB:
 		y = to_dB(y)
 	return y
+
+
+def _test_rms():
+	import signal_generation
+	for val in [-2.0, -1.0, 0.0, 0.0001, 1.0]:
+		assert approx_equal(val, abs(val))
+	n_samp = 2048
+	freq = 1.0 / n_samp
+	assert approx_equal(rms(signal_generation.gen_sine(freq, n_samp)), 1.0 / math.sqrt(2.0))
+	assert approx_equal(rms(signal_generation.gen_saw(freq, n_samp)), 1.0 / math.sqrt(3.0))
+	assert approx_equal(rms(signal_generation.gen_square(freq, n_samp)), 1.0)
+
+
+_unit_tests.append(_test_rms)
 
 
 def normalize(vec):
@@ -113,6 +186,17 @@ def normalize(vec):
 		return vec
 	else:
 		return vec / peak
+
+
+def _test_normalize():
+	import signal_generation
+	n_samp = 2048
+	freq = 1.0 / n_samp
+	sig = signal_generation.gen_sine(freq, n_samp)
+	assert approx_equal(normalize(sig * 0.13), sig)
+
+
+_unit_tests.append(_test_normalize)
 
 
 def import_wavfile(filename) -> Tuple[np.ndarray, int]:
@@ -230,3 +314,8 @@ def get_freq_response(system: Processor, freqs, sample_rate, n_samp=None, n_cycl
 
 	else:
 		return mags, phases
+
+
+if __name__ == "__main__":
+	import unit_test
+	unit_test.run_unit_tests(_unit_tests)
