@@ -116,18 +116,21 @@ class TrapzOnePole(Filter):
 		return y
 
 
-# FIXME: doesn't work
-"""
-class TrapzOnePoleHighpass(TrapzOnePole):
+class TrapzOnePoleHighpass(Filter):
 	def __init__(self, wc, verbose=False):
-		super().__init__(wc, verbose=verbose)
-	
+		self.x_prev = 0.0
+		self.lpf = TrapzOnePole(wc=wc, verbose=verbose)
+
+	def set_freq(self, wc: float):
+		self.lpf.set_freq(wc)
+
 	def reset(self):
-		super().reset()
+		self.lpf.reset()
 
 	def process_sample(self, x):
-		return x - super().process_sample(x)
-"""
+		y = x - self.lpf.process_sample(0.5 * (x + self.x_prev))
+		self.x_prev = x
+		return y
 
 
 class BiquadFilter(Processor):
@@ -443,10 +446,48 @@ class LeakyIntegrator(Filter):
 		return self.gain * self.z1
 
 
+class CrossoverLpf(CascadedFilters):
+	"""Linkwitz-Riley lowpass filter"""
+
+	def __init__(self, wc, order: int=2, verbose=False):
+		if order % 2 != 0:
+			raise ValueError('Order must be even')
+		order //= 2
+		if order == 1:
+			super().__init__([BasicOnePole(wc, verbose=verbose) for _ in range(2)])
+		else:
+			super().__init__([ButterworthLowpass(wc, order, verbose=verbose) for _ in range(2)])
+
+
+class CrossoverHpf(CascadedFilters):
+	"""Linkwitz-Riley highpass filter"""
+
+	def __init__(self, wc, order: int=2, verbose=False):
+		if order % 2 != 0:
+			raise ValueError('Order must be even')
+		order //= 2
+		if order == 1:
+			super().__init__([BasicOnePoleHighpass(wc, verbose=verbose) for _ in range(2)])
+		else:
+			super().__init__([ButterworthHighpass(wc, order, verbose=verbose) for _ in range(2)])
+
+
+def make_crossover_pair(wc, order) -> Tuple[CrossoverLpf, CrossoverHpf]:
+	return CrossoverLpf(wc, order), CrossoverHpf(wc, order)
+
+
 if __name__ == "__main__":
 	import utils
 	from matplotlib import pyplot as plt
 	import argparse
+
+	parser = argparse.ArgumentParser()
+	parser.add_argument('--basic', action='store_true')
+	parser.add_argument('--biquad', action='store_true')
+	parser.add_argument('--butter', action='store_true', help='Butterorth filters')
+	parser.add_argument('--cross', action='store_true', help='Crossover filters')
+	parser.add_argument('--int', action='store_true', help='Integrators')
+	args = parser.parse_args()
 
 	one_over_sqrt2 = 1.0/math.sqrt(2.0)  # 0.7071
 
@@ -458,7 +499,7 @@ if __name__ == "__main__":
 		(BasicOnePole, None),
 		(BasicOnePoleHighpass, None),
 		(TrapzOnePole, None),
-		#(TrapzOnePoleHighpass, None),
+		(TrapzOnePoleHighpass, None),
 		(BiquadLowpass, [
 			dict(Q=0.5),
 			dict(Q=one_over_sqrt2),
@@ -483,7 +524,9 @@ if __name__ == "__main__":
 		(ButterworthHighpass, [dict(order=4)]),
 		(LeakyIntegrator, [
 			dict(cutoff=10.0, f_norm=1000.0),
-			dict(cutoff=100.0, f_norm=1000.0)])
+			dict(cutoff=100.0, f_norm=1000.0)]),
+		(CrossoverLpf, [dict(order=2)]),
+		(CrossoverHpf, [dict(order=2)]),
 	]
 
 	filter_list_basic = [
@@ -499,14 +542,14 @@ if __name__ == "__main__":
 			dict(cutoff=100.0),
 			dict(cutoff=1000.0),
 			dict(cutoff=10000.0)]),
-		#(TrapzOnePoleHighpass, [
-		#	dict(cutoff=10.0),
-		#	dict(cutoff=100.0),
-		#	dict(cutoff=1000.0))]),
+		(TrapzOnePoleHighpass, [
+			dict(cutoff=10.0),
+			dict(cutoff=100.0),
+			dict(cutoff=1000.0)]),
 	]
 
 	filter_list_biquad = [
-				(BiquadLowpass, [
+		(BiquadLowpass, [
 			dict(Q=0.5),
 			dict(Q=one_over_sqrt2),
 			dict(Q=1.0),
@@ -552,12 +595,12 @@ if __name__ == "__main__":
 			dict(order=12, cascade_sos=False),]),
 	]
 
-	parser = argparse.ArgumentParser()
-	parser.add_argument('--basic', action='store_true')
-	parser.add_argument('--biquad', action='store_true')
-	parser.add_argument('--butter', action='store_true')
-	parser.add_argument('--int', action='store_true')
-	args = parser.parse_args()
+	filter_list_cross = [
+		([CrossoverLpf, CrossoverHpf], [
+			dict(order=2),
+			dict(order=4),
+			dict(order=6)]),
+	]
 
 	filter_list = []
 	if args.basic:
@@ -572,6 +615,9 @@ if __name__ == "__main__":
 	if args.int:
 		filter_list += filter_list_integrator
 
+	if args.cross:
+		filter_list += filter_list_cross
+
 	if not filter_list:
 		filter_list = filter_list_full
 
@@ -583,7 +629,7 @@ if __name__ == "__main__":
 
 	t = np.linspace(0., n_samp/sample_rate, n_samp)
 
-	for filter_type, extra_args_list in filter_list:
+	for filter_types, extra_args_list in filter_list:
 
 		plt.figure()
 
@@ -596,58 +642,65 @@ if __name__ == "__main__":
 		max_amp_seen = 0.0
 		min_amp_seen = 0.0
 
-		for extra_args in extra_args_list:
+		if not hasattr(filter_types, "__iter__"):
+			filter_types = [filter_types]
 
-			label = ', '.join(['%s=%s' % (key, to_pretty_str(value)) for key, value in extra_args.items()])
-			if label:
-				print('Processing %s, %s' % (filter_type.__name__, label))
-			else:
-				print('Processing %s' % (filter_type.__name__))
+		for filter_type in filter_types:
 
-			if 'cutoff' in extra_args.keys():
-				cutoff = extra_args['cutoff']
-				extra_args.pop('cutoff')
-			else:
-				cutoff = default_cutoff
+			for extra_args in extra_args_list:
 
-			if 'f_norm' in extra_args.keys():
-				extra_args['w_norm'] = extra_args['f_norm'] / sample_rate
-				extra_args.pop('f_norm')
+				label = ', '.join(['%s=%s' % (key, to_pretty_str(value)) for key, value in extra_args.items()])
+				if label:
+					print('Processing %s, %s' % (filter_type.__name__, label))
+				else:
+					print('Processing %s' % (filter_type.__name__))
 
-			filt = filter_type(wc=(cutoff / sample_rate), verbose=True, **extra_args)
-			amps, phases, group_delay = utils.get_freq_response(filt, f, sample_rate, n_samp=n_samp, throw_if_nonlinear=True, group_delay=True)
-			#amps, phases, group_delay = utils.get_freq_response(filt, f, sample_rate, throw_if_nonlinear=True, group_delay=True)
-			
-			amps = to_dB(amps)
+				if 'cutoff' in extra_args.keys():
+					cutoff = extra_args['cutoff']
+					extra_args.pop('cutoff')
+				else:
+					cutoff = default_cutoff
 
-			max_amp_seen = max(max_amp_seen, np.amax(amps))
-			min_amp_seen = min(min_amp_seen, np.amin(amps))
+				if 'f_norm' in extra_args.keys():
+					extra_args['w_norm'] = extra_args['f_norm'] / sample_rate
+					extra_args.pop('f_norm')
 
-			phases_deg = np.rad2deg(phases)
-			phases_deg = (phases_deg + 180.) % 360 - 180.
-			
-			plt.subplot(311)
-			plt.semilogx(f, amps, label=label)
+				filt = filter_type(wc=(cutoff / sample_rate), verbose=True, **extra_args)
+				amps, phases, group_delay = utils.get_freq_response(filt, f, sample_rate, n_samp=n_samp, throw_if_nonlinear=True, group_delay=True)
+				#amps, phases, group_delay = utils.get_freq_response(filt, f, sample_rate, throw_if_nonlinear=True, group_delay=True)
 
-			plt.subplot(312)
-			plt.semilogx(f, phases_deg, label=label)
+				amps = to_dB(amps)
 
-			plt.subplot(313)
-			plt.semilogx(f, group_delay, label=label)
-		
+				max_amp_seen = max(max_amp_seen, np.amax(amps))
+				min_amp_seen = min(min_amp_seen, np.amin(amps))
+
+				phases_deg = np.rad2deg(phases)
+				phases_deg = (phases_deg + 180.) % 360 - 180.
+
+				plt.subplot(311)
+				plt.semilogx(f, amps, label=label)
+
+				plt.subplot(312)
+				plt.semilogx(f, phases_deg, label=label)
+
+				plt.subplot(313)
+				plt.semilogx(f, group_delay, label=label)
+
+		name = ', '.join([type.__name__ for type in filter_types])
+
 		plt.subplot(311)
-		plt.title('%s, sample rate %.0f' % (filter_type.__name__, sample_rate))
+		plt.title('%s, sample rate %.0f' % (name, sample_rate))
 		plt.ylabel('Amplitude (dB)')
-		
+
 		max_amp = np.ceil(max_amp_seen / 6.0) * 6.0
 		min_amp = np.floor(min_amp_seen / 6.0) * 6.0
-		
+
 		plt.yticks(np.arange(min_amp, max_amp + 6, 6))
 		plt.ylim([max(min_amp, -60.0), max(max_amp, 6.0)])
 		plt.grid()
 		if add_legend:
 			plt.legend()
-		
+
 		plt.subplot(312)
 		plt.ylabel('Phase')
 		plt.grid()
