@@ -65,6 +65,12 @@ def clip(val, range: Tuple[Any, Any]):
 	return np.clip(val, range[0], range[1])
 
 
+# Make alias for functions where clip is a function argument name that shadows
+# TODO: see if there's a better way to do this
+# (I don't think shadowing is actually that bad in this case, but it would be nice to have a cleaner workaround)
+_clip = clip
+
+
 def _test_clip():
 	assert clip(1, (2, 4)) == 2
 	assert clip(3, (2, 4)) == 3
@@ -81,8 +87,20 @@ _unit_tests.append(_test_clip)
 
 def lerp(vals: Tuple[Any, Any], x: float, clip=False) -> float:
 	if clip:
-		x = np.clip(x, 0.0, 1.0)
+		x = _clip(x, (0.0, 1.0))
 	return (1.-x)*vals[0] + x*vals[1]
+
+
+def reverse_lerp(vals: Tuple[Any, Any], y: float, clip=False) -> float:
+	x = (y - vals[0]) / (vals[1] - vals[0])
+	if clip:
+		x = _clip(x, (0.0, 1.0))
+	return x
+
+
+def scale(val_in, range_in: Tuple[Any, Any], range_out: Tuple[Any, Any], clip=False) -> float:
+	x = reverse_lerp(range_in, val_in, clip=clip)
+	return lerp(range_out, x)
 
 
 def _test_lerp():
@@ -93,6 +111,18 @@ def _test_lerp():
 	assert approx_equal(lerp((10, 20), 1.5, clip=False), 25.0)
 	assert approx_equal(lerp((10, 20), -0.5, clip=True), 10.0)
 	assert approx_equal(lerp((10, 20), -0.5, clip=False), 5.0)
+
+	assert approx_equal(reverse_lerp((10, 20), 10.0), 0.0)
+	assert approx_equal(reverse_lerp((10, 20), 15.0), 0.5)
+	assert approx_equal(reverse_lerp((10, 20), 20.0), 1.0)
+	assert approx_equal(reverse_lerp((10, 20), 25.0, clip=True), 1.0)
+	assert approx_equal(reverse_lerp((10, 20), 25.0, clip=False), 1.5)
+	assert approx_equal(reverse_lerp((10, 20), 5.0, clip=True), 0.0)
+	assert approx_equal(reverse_lerp((10, 20), 5.0, clip=False), -0.5)
+
+	assert approx_equal(scale(10., (5., 25.), (1., 5.)), 2.)
+	assert approx_equal(scale(30., (5., 25.), (1., 5.), clip=False), 6.)
+	assert approx_equal(scale(30., (5., 25.), (1., 5.), clip=True), 5.)
 
 
 _unit_tests.append(_test_lerp)
@@ -169,7 +199,7 @@ def rms(vec, dB=False):
 def _test_rms():
 	import signal_generation
 	for val in [-2.0, -1.0, 0.0, 0.0001, 1.0]:
-		assert approx_equal(val, abs(val))
+		assert approx_equal(rms(val), abs(val))
 	n_samp = 2048
 	freq = 1.0 / n_samp
 	assert approx_equal(rms(signal_generation.gen_sine(freq, n_samp)), 1.0 / math.sqrt(2.0))
