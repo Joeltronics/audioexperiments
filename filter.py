@@ -4,14 +4,21 @@ from processor import Processor
 
 import numpy as np
 import scipy.signal
-from math import pi, cos, tan, sin, exp, log2, log10
+from math import pi, cos, tan, sin, exp, log2, log10, sqrt
 import math
 from typing import Tuple, List
 from utils import *
+from filter_unit_test import FilterUnitTest
+
+# TODO: figure out why one pole filter response is way off, and tighten up test requirements
+# I don't think it's just measurement error, because Butterworth filters are dead on
+# Seems to be an error in calculating coeffs
 
 
 # TODO: many of these could have much more efficient process_vector using scipy.signal.lfilter
 # would need to deal with state updates with zi and zf
+
+_unit_tests = []
 
 
 class Filter(Processor):
@@ -45,6 +52,22 @@ class CascadedFilters(Filter):
 		return y
 
 
+class ParallelFilters(Filter):
+	def __init__(self, filters):
+		self.filters = filters
+
+	def reset(self):
+		for f in self.filters:
+			f.reset()
+
+	def set_freq(self, wc, **kwargs):
+		for f in self.filters:
+			f.set_freq(wc, **kwargs)
+
+	def process_sample(self, x):
+		return sum([f.process_sample(x) for f in self.filters])
+
+
 class BasicOnePole(Filter):
 	def __init__(self, wc, verbose=False):
 		self.z1 = 0.0
@@ -67,6 +90,27 @@ class BasicOnePole(Filter):
 		return y
 
 
+_unit_tests.append(FilterUnitTest(
+	"BasicOnePole(1 kHz @ 44.1 kHz)",
+	lambda: BasicOnePole(1./44.1),
+	freqs_to_test=np.array([10., 100., 1000., 10000.]) / 44100.,
+	expected_freq_response_range_dB=[(-0.1, 0.0), (-3.0, 0.0), (-4.0, -2.0), (-24.0, -18.0)],
+	expected_phase_response_range_degrees=None, #[(), (), (), None],
+	deterministic=True,
+	linear=True
+))
+
+_unit_tests.append(FilterUnitTest(
+	"BasicOnePole(100 Hz @ 44.1 kHz)",
+	lambda: BasicOnePole(100./44100.),
+	freqs_to_test=np.array([10., 100., 1000., 10000.]) / 44100.,
+	expected_freq_response_range_dB=[(-3.0, 0.0), (-4.0, -2.0), (-21.0, -20.0), (-48.0, -38.0)],
+	expected_phase_response_range_degrees=None, #[(), (), (), None],
+	deterministic=True,
+	linear=True
+))
+
+
 class BasicOnePoleHighpass(Filter):
 	def __init__(self, wc, verbose=False):
 		self.lpf = BasicOnePole(wc)
@@ -84,6 +128,17 @@ class BasicOnePoleHighpass(Filter):
 
 	def process_vector(self, vec):
 		return vec - self.lpf.process_vector(vec)
+
+
+_unit_tests.append(FilterUnitTest(
+	"BasicOnePoleHighpass(1 kHz @ 44.1 kHz)",
+	lambda: BasicOnePoleHighpass(1./44.1),
+	freqs_to_test=np.array([10., 100., 1000., 10000.]) / 44100.,
+	expected_freq_response_range_dB=[(-48.0, -38.0), (-24.0, -18.0), (-4.0, -2.0), (-3.0, 0.0)],
+	expected_phase_response_range_degrees=None, #[(), (), (), None],
+	deterministic=True,
+	linear=True
+))
 
 
 class TrapzOnePole(Filter):
@@ -116,6 +171,27 @@ class TrapzOnePole(Filter):
 		return y
 
 
+_unit_tests.append(FilterUnitTest(
+	"TrapzOnePole(1 kHz @ 44.1 kHz)",
+	lambda: TrapzOnePole(1./44.1),
+	freqs_to_test=np.array([10., 100., 1000., 10000.]) / 44100.,
+	expected_freq_response_range_dB=[(-0.1, 0.0), (-3.0, 0.0), (-4.0, -2.0), (-24.0, -18.0)],
+	expected_phase_response_range_degrees=None, #[(), (), (), None],
+	deterministic=True,
+	linear=True
+))
+
+_unit_tests.append(FilterUnitTest(
+	"TrapzOnePole(100 Hz @ 44.1 kHz)",
+	lambda: TrapzOnePole(100./44100.),
+	freqs_to_test=np.array([10., 100., 1000., 10000.]) / 44100.,
+	expected_freq_response_range_dB=[(-3.0, 0.0), (-4.0, -2.0), (-24.0, -18.0), (-48.0, -38.0)],
+	expected_phase_response_range_degrees=None, #[(), (), (), None],
+	deterministic=True,
+	linear=True
+))
+
+
 class TrapzOnePoleHighpass(Filter):
 	def __init__(self, wc, verbose=False):
 		self.x_prev = 0.0
@@ -131,6 +207,17 @@ class TrapzOnePoleHighpass(Filter):
 		y = x - self.lpf.process_sample(0.5 * (x + self.x_prev))
 		self.x_prev = x
 		return y
+
+
+_unit_tests.append(FilterUnitTest(
+	"TrapzOnePoleHighpass(1 kHz @ 44.1 kHz)",
+	lambda: TrapzOnePoleHighpass(1./44.1),
+	freqs_to_test=np.array([10., 100., 1000., 10000.]) / 44100.,
+	expected_freq_response_range_dB=[(-48.0, -38.0), (-24.0, -18.0), (-4.0, -2.0), (-3.0, 0.0)],
+	expected_phase_response_range_degrees=None, #[(), (), (), None],
+	deterministic=True,
+	linear=True
+))
 
 
 class BiquadFilter(Processor):
@@ -183,9 +270,7 @@ class BiquadFilter(Processor):
 		
 		return y
 
-	# TODO: could add much more efficient process_vector using scipy.signal.lfilter
-
-
+# TODO: could add much more efficient process_vector using scipy.signal.lfilter
 # would need to deal with state updates with zi and zf
 
 
@@ -230,6 +315,39 @@ class BiquadLowpass(BiquadFilter):
 		self.set_coeffs(a, b)
 
 
+_unit_tests.append(FilterUnitTest(
+	"BiquadLowpass(1 kHz @ 44.1 kHz, Q=0.5)",
+	lambda: BiquadLowpass(1./44.1, Q=0.5),
+	freqs_to_test=np.array([10., 31.62, 100., 316.2, 1000., 3162., 10000.]) / 44100.,
+	expected_freq_response_range_dB=[(-0.1, 0.0), (-1., 0.), (-3.0, 0.0), (-3.0, 0.0), (-6.1, -5.9), (-22., -20.), (-44.0, -40.0)],
+	expected_phase_response_range_degrees=None, #[(), (), (), None],
+	deterministic=True,
+	linear=True
+))
+
+
+_unit_tests.append(FilterUnitTest(
+	"BiquadLowpass(100 Hz @ 44.1 kHz, Q=0.5)",
+	lambda: BiquadLowpass(100./44100., Q=0.5),
+	freqs_to_test=np.array([10., 31.62, 100., 316.2, 1000., 3162., 10000.]) / 44100.,
+	expected_freq_response_range_dB=[(-1., 0.), (-3.0, 0.0), (-6.1, -5.9), (-22., -20.), (-41.0, -40.0), (-61., -60.), (-88., -80.)],
+	expected_phase_response_range_degrees=None, #[(), (), (), None],
+	deterministic=True,
+	linear=True
+))
+
+
+_unit_tests.append(FilterUnitTest(
+	"BiquadLowpass(1 kHz @ 44.1 kHz, Q=0.71)",
+	lambda: BiquadLowpass(1./44.1, Q=1.0/sqrt(2.0)),
+	freqs_to_test=np.array([10., 31.62, 100., 316.2, 1000., 3162., 10000.]) / 44100.,
+	expected_freq_response_range_dB=[(-0.1, 0.0), (-1., 0.), (-3.0, 0.0), (-3.0, 0.0), (-3.1, -2.9), (-22., -20.), (-44.0, -40.0)],
+	expected_phase_response_range_degrees=None, #[(), (), (), None],
+	deterministic=True,
+	linear=True
+))
+
+
 class BiquadHighpass(BiquadFilter):
 	
 	def __init__(self, wc, Q=0.5, verbose=False):
@@ -268,6 +386,39 @@ class BiquadHighpass(BiquadFilter):
 
 		a, b = self._get_coeffs(wc, self.Q)
 		self.set_coeffs(a, b)
+
+
+_unit_tests.append(FilterUnitTest(
+	"BiquadHighpass(1 kHz @ 44.1 kHz, Q=0.5)",
+	lambda: BiquadHighpass(1./44.1, Q=0.5),
+	freqs_to_test=np.array([10., 31.62, 100., 316.2, 1000., 3162., 10000.]) / 44100.,
+	expected_freq_response_range_dB=[(-82, -80), (-62, -60), (-42, -40), (-22, -20), (-6.1, -5.9), (-3, 0), (-0.5, 0)],
+	expected_phase_response_range_degrees=None, #[(), (), (), None],
+	deterministic=True,
+	linear=True
+))
+
+
+_unit_tests.append(FilterUnitTest(
+	"BiquadHighpass(100 Hz @ 44.1 kHz, Q=0.5)",
+	lambda: BiquadHighpass(100./44100., Q=0.5),
+	freqs_to_test=np.array([10., 31.62, 100., 316.2, 1000., 3162., 10000.]) / 44100.,
+	expected_freq_response_range_dB=[(-42, -40), (-22, -20), (-6.1, -5.9), (-3, 0), (-1, 0), (-1, 0), (-0.1, 0.0)],
+	expected_phase_response_range_degrees=None, #[(), (), (), None],
+	deterministic=True,
+	linear=True
+))
+
+
+_unit_tests.append(FilterUnitTest(
+	"BiquadHighpass(100 Hz @ 44.1 kHz, Q=0.71)",
+	lambda: BiquadHighpass(100./44100., Q=1.0/sqrt(2.0)),
+	freqs_to_test=np.array([10., 31.62, 100., 316.2, 1000., 3162., 10000.]) / 44100.,
+	expected_freq_response_range_dB=[(-42, -40), (-22, -20), (-3.1, -2.9), (-2, 0), (-1, 0), (-1, 0), (-0.1, 0.0)],
+	expected_phase_response_range_degrees=None, #[(), (), (), None],
+	deterministic=True,
+	linear=True
+))
 
 
 class BiquadBandpass(BiquadFilter):
@@ -313,6 +464,18 @@ class BiquadBandpass(BiquadFilter):
 
 		a, b = self._get_coeffs(wc, self.Q, self.peak_0dB)
 		self.set_coeffs(a, b)
+
+
+_unit_tests.append(FilterUnitTest(
+	"BiquadBandpass(1 kHz @ 44.1 kHz, Q=0.5)",
+	lambda: BiquadBandpass(1./44.1, Q=0.5),
+	freqs_to_test=np.array([10., 31.62, 100., 316.2, 1000., 3162., 10000.]) / 44100.,
+	expected_freq_response_range_dB=[(-42, -40), (-32, -30), (-22, -20), (-12, -10), (-6.1, -5.9), (-12, -10), (-22, -20)],
+	expected_phase_response_range_degrees=None, #[(), (), (), None],
+	deterministic=True,
+	linear=True
+))
+
 
 
 class HigherOrderFilter(Processor):
@@ -472,22 +635,39 @@ class CrossoverHpf(CascadedFilters):
 			super().__init__([ButterworthHighpass(wc, order, verbose=verbose) for _ in range(2)])
 
 
+class _ParallelCrossover(ParallelFilters):
+	"""Crossover HPF & LPF in parallel, used for plotting & unit testing"""
+	def __init__(self, *args, **kwargs):
+		super().__init__([CrossoverLpf(*args, **kwargs), CrossoverHpf(*args, **kwargs)])
+
+
 def make_crossover_pair(wc, order) -> Tuple[CrossoverLpf, CrossoverHpf]:
 	return CrossoverLpf(wc, order), CrossoverHpf(wc, order)
 
 
-if __name__ == "__main__":
-	import utils
+def _run_unit_tests():
+	import unit_test
+	unit_test.run_unit_tests(_unit_tests)
+
+
+def main():
 	from matplotlib import pyplot as plt
 	import argparse
+	from freq_response import get_freq_response
 
 	parser = argparse.ArgumentParser()
+	parser.add_argument('-v', '--verbose', action='store_true', help='Verbose unit tests')
+	parser.add_argument('--test', action='store_true', help='Run unit tests')
 	parser.add_argument('--basic', action='store_true')
 	parser.add_argument('--biquad', action='store_true')
 	parser.add_argument('--butter', action='store_true', help='Butterorth filters')
 	parser.add_argument('--cross', action='store_true', help='Crossover filters')
 	parser.add_argument('--int', action='store_true', help='Integrators')
 	args = parser.parse_args()
+
+	if args.test:
+		_run_unit_tests()
+		return
 
 	one_over_sqrt2 = 1.0/math.sqrt(2.0)  # 0.7071
 
@@ -582,12 +762,14 @@ if __name__ == "__main__":
 
 	filter_list_butterworth = [
 		(ButterworthLowpass, [
+			dict(order=1),
 			dict(order=2),
 			dict(order=4),
 			dict(order=8),
 			dict(order=12),
 			dict(order=12, cascade_sos=False),]),
 		(ButterworthHighpass, [
+			dict(order=1),
 			dict(order=2),
 			dict(order=4),
 			dict(order=8),
@@ -600,6 +782,10 @@ if __name__ == "__main__":
 			dict(order=2),
 			dict(order=4),
 			dict(order=6)]),
+		(_ParallelCrossover, [
+			dict(order=2),
+			dict(order=4),
+			dict(order=6)])
 	]
 
 	filter_list = []
@@ -666,8 +852,7 @@ if __name__ == "__main__":
 					extra_args.pop('f_norm')
 
 				filt = filter_type(wc=(cutoff / sample_rate), verbose=True, **extra_args)
-				amps, phases, group_delay = utils.get_freq_response(filt, f, sample_rate, n_samp=n_samp, throw_if_nonlinear=True, group_delay=True)
-				#amps, phases, group_delay = utils.get_freq_response(filt, f, sample_rate, throw_if_nonlinear=True, group_delay=True)
+				amps, phases, group_delay = get_freq_response(filt, f, sample_rate, n_samp=n_samp, group_delay=True)
 
 				amps = to_dB(amps)
 
@@ -677,23 +862,26 @@ if __name__ == "__main__":
 				phases_deg = np.rad2deg(phases)
 				phases_deg = (phases_deg + 180.) % 360 - 180.
 
-				plt.subplot(311)
+				plt.subplot(411)
 				plt.semilogx(f, amps, label=label)
 
-				plt.subplot(312)
+				plt.subplot(412)
+				plt.semilogx(f, amps, label=label)
+
+				plt.subplot(413)
 				plt.semilogx(f, phases_deg, label=label)
 
-				plt.subplot(313)
+				plt.subplot(414)
 				plt.semilogx(f, group_delay, label=label)
 
 		name = ', '.join([type.__name__ for type in filter_types])
 
-		plt.subplot(311)
+		plt.subplot(411)
 		plt.title('%s, sample rate %.0f' % (name, sample_rate))
 		plt.ylabel('Amplitude (dB)')
 
-		max_amp = np.ceil(max_amp_seen / 6.0) * 6.0
-		min_amp = np.floor(min_amp_seen / 6.0) * 6.0
+		max_amp = math.ceil(max_amp_seen / 6.0) * 6.0
+		min_amp = math.floor(min_amp_seen / 6.0) * 6.0
 
 		plt.yticks(np.arange(min_amp, max_amp + 6, 6))
 		plt.ylim([max(min_amp, -60.0), max(max_amp, 6.0)])
@@ -701,15 +889,30 @@ if __name__ == "__main__":
 		if add_legend:
 			plt.legend()
 
-		plt.subplot(312)
+		plt.subplot(412)
+		plt.ylabel('Amplitude (dB)')
+
+		max_amp = math.ceil(max_amp_seen / 3.0) * 3.0
+		min_amp = math.floor(min_amp_seen / 3.0) * 3.0
+
+		yticks = np.arange(min_amp, max_amp + 3, 3)
+		plt.yticks(yticks)
+		plt.ylim([max(min_amp, -6.0), min(max_amp, 6.0)])
+		plt.grid()
+
+		plt.subplot(413)
 		plt.ylabel('Phase')
 		plt.grid()
 		plt.yticks([-180, -90, 0, 90, 180])
 
-		plt.subplot(313)
+		plt.subplot(414)
 		plt.grid()
 		plt.ylabel('Group delay')
 
 		plt.xlabel('Freq')
 
 	plt.show()
+
+
+if __name__ == "__main__":
+	main()

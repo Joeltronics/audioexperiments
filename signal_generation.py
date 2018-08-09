@@ -62,8 +62,7 @@ def gen_sine(freq_norm: float, n_samp: int, start_phase=0.0, allow_aliasing=Fals
 	:param allow_aliasing:
 	:return:
 	"""
-	phase = gen_phase(freq_norm, n_samp, start_phase=start_phase, allow_aliasing=allow_aliasing)
-	return phase_to_sine(phase)
+	return phase_to_sine(gen_phase(freq_norm, n_samp, start_phase=start_phase, allow_aliasing=allow_aliasing))
 
 
 def gen_cos_sine(freq_norm: float, n_samp: int) -> Tuple[np.ndarray, np.ndarray]:
@@ -73,8 +72,8 @@ def gen_cos_sine(freq_norm: float, n_samp: int) -> Tuple[np.ndarray, np.ndarray]
 	:param n_samp: number of samples
 	:return:
 	"""
-	ph = gen_phase(freq_norm, n_samp)
-	return phase_to_cos(ph), phase_to_sine(ph)
+	phase = gen_phase(freq_norm, n_samp)
+	return phase_to_cos(phase), phase_to_sine(phase)
 
 
 def gen_saw(freq_norm: float, n_samp: int) -> np.ndarray:

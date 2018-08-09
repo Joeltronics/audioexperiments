@@ -135,7 +135,14 @@ def run_unit_test(test_func: Callable, verbose=None) -> bool:
 	if verbose is None:
 		verbose = '-v' in sys.argv or '--verbose' in sys.argv
 
-	test_name = test_func.__name__
+	if hasattr(test_func, "name"):
+		test_name = test_func.name
+	elif hasattr(test_func, "__name__"):
+		test_name = test_func.__name__
+	elif hasattr(test_func, "__class__"):
+		test_name = test_func.__class__
+	else:
+		test_name = type(test_func).__name__
 
 	# If it's a module private function, strip underscore from start of name
 	if test_name.startswith('_'):
@@ -157,7 +164,7 @@ def run_unit_test(test_func: Callable, verbose=None) -> bool:
 		traceback.print_exc()
 
 	except Exception as ex:
-		print('Test "%s" failed - threw %s' % (test_name, ex.__name__))
+		print('Test "%s" failed - threw %s' % (test_name, type(ex).__name__))
 		traceback.print_exc()
 
 	if verbose:
