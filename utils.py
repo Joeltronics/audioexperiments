@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 
 import numpy as np
-import scipy.io.wavfile
-import os.path
 import math
 
 from processor import Processor
@@ -227,35 +225,6 @@ def _test_normalize():
 
 
 _unit_tests.append(_test_normalize)
-
-
-def import_wavfile(filename) -> Tuple[np.ndarray, int]:
-	"""Import wav file and normalize to float values in range [-1, 1)
-
-	:param filename:
-	:return: data, sample rate (Hz)
-	"""
-	if not os.path.exists(filename):
-		raise FileNotFoundError(filename)
-	
-	sample_rate, data = scipy.io.wavfile.read(filename)
-
-	# Convert to range (-1,1)
-
-	if data.dtype == np.dtype('int8'):
-		data = data.astype('float') / 128.0
-	elif data.dtype == np.dtype('uint8'):
-		data = (data.astype('float') - 128.0) / 128.0
-	elif data.dtype == np.dtype('int16'):
-		data = data.astype('float') / float(2**15)
-	elif data.dtype == np.dtype('int32'):
-		data = data.astype('float') / float(2**31)
-	elif data.dtype == np.dtype('float'):
-		pass
-	else:
-		raise ValueError('Unknown data type: %s' % data.dtype)
-
-	return data, sample_rate
 
 
 if __name__ == "__main__":
