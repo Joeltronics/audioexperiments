@@ -11,13 +11,15 @@ from approx_equal import *
 _unit_tests = []
 
 
-def to_pretty_str(val) -> str:
+def to_pretty_str(val, num_decimals=6) -> str:
 	"""Convert float into nicely formatted string
 
 	If another type is given, just calls str(val)
 	"""
+
 	if type(val) == float:
-		s = '%.6f' % val
+		format = '%%.%if' % num_decimals
+		s = format % val
 		while s.endswith('0'):
 			s = s[:-1]
 		if s.endswith('.'):
@@ -34,6 +36,8 @@ def _test_to_pretty_str():
 	assert to_pretty_str(1.00000001) == '1.0'
 	assert to_pretty_str(0.0) == '0.0'
 	assert to_pretty_str(0.00000001) == '0.0'
+	assert to_pretty_str(0.12345678) == '0.123457'
+	assert to_pretty_str(0.12, num_decimals=2) == '0.12'
 
 
 _unit_tests.append(_test_to_pretty_str)
