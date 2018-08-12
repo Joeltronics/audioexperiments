@@ -19,7 +19,8 @@ class FilterUnitTest:
 			expected_freq_response_range_dB: Iterable[Tuple[Optional[float], Optional[float]]],
 			expected_phase_response_range_degrees: Optional[Iterable[Optional[Tuple[float, float]]]]=None,
 			deterministic: bool=True,
-			linear: bool=True):
+			linear: bool=True,
+			amplitude: float=1.0):
 		"""
 
 		:param constructor:
@@ -28,6 +29,7 @@ class FilterUnitTest:
 		:param expected_freq_response_range_dB: expected response at frequencies, in dB - min and max, or None to leave one side open
 		:param deterministic: True if filter is deterministic (aside from small floating-point and/or quantization error)
 		:param linear: True if filter is linear (aside from small floating-point and/or quantization error)
+		:param amplitude: amplitude to run unit test at (in case filter is nonlinear)
 		"""
 
 		self.constructor = constructor
@@ -38,6 +40,7 @@ class FilterUnitTest:
 		self.expected_phase_response_degrees = expected_phase_response_range_degrees
 		self.deterministic = deterministic
 		self.linear = linear
+		self.amplitude = amplitude
 
 	def __call__(self, *args, **kwargs) -> None:
 		"""
@@ -135,7 +138,8 @@ class FilterUnitTest:
 			mag=True,
 			phase=check_phase,
 			rms=self.linear,
-			group_delay=False)
+			group_delay=False,
+			amplitude=self.amplitude)
 
 		freq_resp_mag = utils.to_dB(freq_resp_ret[0] if isinstance(freq_resp_ret, tuple) else freq_resp_ret)
 

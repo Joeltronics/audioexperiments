@@ -25,6 +25,9 @@ class Processor:
 		"""Reset Processor state (but not parameters)"""
 		pass
 
+	def __call__(self, *args, **kwargs):
+		return self.process(*args, **kwargs)
+
 
 class CascadedProcessors(Processor):
 	def __init__(self, processors):

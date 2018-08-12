@@ -32,6 +32,18 @@ class Filter(Processor):
 	def process_sample(self, sample: float) -> float:
 		raise NotImplementedError('process_sample() to be implemented by the child class!')
 
+	def process_freq_sweep(self, x: np.ndarray, wc_start: float, wc_end: float, log: bool=True) -> np.ndarray:
+		if log:
+			wcs = np.logspace(math.log2(wc_start), math.log2(wc_end), len(x), base=2.0)
+		else:
+			wcs = np.linspace(wc_start, wc_end, len(x))
+
+		y = np.zeros_like(x)
+		for n, xx, wc in zip(range(len(x)), x, wcs):
+			self.set_freq(wc)
+			y[n] = self.process_sample(xx)
+		return y
+
 
 class CascadedFilters(Filter):
 	def __init__(self, filters):
@@ -220,7 +232,7 @@ _unit_tests.append(FilterUnitTest(
 ))
 
 
-class BiquadFilter(Processor):
+class BiquadFilter(Filter):
 	def __init__(self, a: Tuple[float, float, float], b: Tuple[float, float, float]):
 		self.a1 = self.a2 = 0.0
 		self.b0 = self.b1 = self.b2 = 0.0
