@@ -782,7 +782,7 @@ def _run_unit_tests():
 def main():
 	from matplotlib import pyplot as plt
 	import argparse
-	from freq_response import get_freq_response
+	from plot_filters import plot_filters
 
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-v', '--verbose', action='store_true', help='Verbose unit tests')
@@ -803,7 +803,6 @@ def main():
 
 	default_cutoff = 1000.
 	sample_rate = 48000.
-	n_samp = int(round(sample_rate / 4.))
 
 	filter_list_full = [
 		(BasicOnePole, None),
@@ -952,109 +951,14 @@ def main():
 	if not filter_list:
 		filter_list = filter_list_full
 
-	f = np.array([
+	freqs = np.array([
 		10., 20., 30., 50., 
 		100., 200., 300., 500., 700., 800., 900., 950.,
 		1000., 1050., 1100., 1200., 1300., 1500., 2000., 3000., 5000.,
 		10000., 11000., 13000., 15000., 20000.])
 
-	t = np.linspace(0., n_samp/sample_rate, n_samp)
-
 	for filter_types, extra_args_list in filter_list:
-
-		plt.figure()
-
-		if extra_args_list is None:
-			add_legend = False
-			extra_args_list = [dict()]
-		else:
-			add_legend = True
-
-		max_amp_seen = 0.0
-		min_amp_seen = 0.0
-
-		if not hasattr(filter_types, "__iter__"):
-			filter_types = [filter_types]
-
-		for filter_type in filter_types:
-
-			for extra_args in extra_args_list:
-
-				label = ', '.join(['%s=%s' % (key, to_pretty_str(value)) for key, value in extra_args.items()])
-				if label:
-					print('Processing %s, %s' % (filter_type.__name__, label))
-				else:
-					print('Processing %s' % (filter_type.__name__))
-
-				if 'cutoff' in extra_args.keys():
-					cutoff = extra_args['cutoff']
-					extra_args.pop('cutoff')
-				else:
-					cutoff = default_cutoff
-
-				if 'f_norm' in extra_args.keys():
-					extra_args['w_norm'] = extra_args['f_norm'] / sample_rate
-					extra_args.pop('f_norm')
-
-				filt = filter_type(wc=(cutoff / sample_rate), verbose=True, **extra_args)
-				amps, phases, group_delay = get_freq_response(filt, f, sample_rate, n_samp=n_samp, group_delay=True)
-
-				amps = to_dB(amps)
-
-				max_amp_seen = max(max_amp_seen, np.amax(amps))
-				min_amp_seen = min(min_amp_seen, np.amin(amps))
-
-				phases_deg = np.rad2deg(phases)
-				phases_deg = (phases_deg + 180.) % 360 - 180.
-
-				plt.subplot(411)
-				plt.semilogx(f, amps, label=label)
-
-				plt.subplot(412)
-				plt.semilogx(f, amps, label=label)
-
-				plt.subplot(413)
-				plt.semilogx(f, phases_deg, label=label)
-
-				plt.subplot(414)
-				plt.semilogx(f, group_delay, label=label)
-
-		name = ', '.join([type.__name__ for type in filter_types])
-
-		plt.subplot(411)
-		plt.title('%s, sample rate %.0f' % (name, sample_rate))
-		plt.ylabel('Amplitude (dB)')
-
-		max_amp = math.ceil(max_amp_seen / 6.0) * 6.0
-		min_amp = math.floor(min_amp_seen / 6.0) * 6.0
-
-		plt.yticks(np.arange(min_amp, max_amp + 6, 6))
-		plt.ylim([max(min_amp, -60.0), max(max_amp, 6.0)])
-		plt.grid()
-		if add_legend:
-			plt.legend()
-
-		plt.subplot(412)
-		plt.ylabel('Amplitude (dB)')
-
-		max_amp = math.ceil(max_amp_seen / 3.0) * 3.0
-		min_amp = math.floor(min_amp_seen / 3.0) * 3.0
-
-		yticks = np.arange(min_amp, max_amp + 3, 3)
-		plt.yticks(yticks)
-		plt.ylim([max(min_amp, -6.0), min(max_amp, 6.0)])
-		plt.grid()
-
-		plt.subplot(413)
-		plt.ylabel('Phase')
-		plt.grid()
-		plt.yticks([-180, -90, 0, 90, 180])
-
-		plt.subplot(414)
-		plt.grid()
-		plt.ylabel('Group delay')
-
-		plt.xlabel('Freq')
+		plot_filters(filter_types, extra_args_list, freqs, sample_rate, default_cutoff, zoom=True, phase=True, group_delay=True)
 
 	plt.show()
 
