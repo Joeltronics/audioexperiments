@@ -41,8 +41,8 @@ def approx_equal_scalar(
 
 
 def approx_equal_vector(
-		first_vector: Union[np.array, Iterable],
-		*args: Union[np.array, Iterable],
+		first_vector: Union[np.ndarray, Iterable],
+		*args: Union[np.ndarray, Iterable],
 		eps: Union[int, float]=default_eps,
 		rel: bool=False) -> bool:
 	"""Compare 2 or more vectors for equality within threshold
@@ -77,7 +77,7 @@ def approx_equal_vector(
 
 
 def approx_equal(
-		*args: Union[int, float, np.array, Iterable],
+		*args: Union[int, float, np.ndarray, Iterable],
 		eps: Union[int, float]=default_eps,
 		rel: bool=False) -> bool:
 	"""Compare 2 or more values for equality within threshold
