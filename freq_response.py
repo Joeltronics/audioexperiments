@@ -4,7 +4,7 @@ import numpy as np
 import math
 import utils
 
-from processor import Processor
+from processor import ProcessorBase
 from typing import Union, Tuple, Any, Iterable
 import signal_generation
 
@@ -55,7 +55,7 @@ def phase_to_group_delay(freqs, phases_rad, sample_rate):
 
 
 def get_freq_response(
-		system: Processor,
+		system: ProcessorBase,
 		freqs: Iterable,
 		sample_rate,
 		n_cycles=40.0,

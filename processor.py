@@ -4,7 +4,7 @@ import numpy as np
 from typing import Union
 
 
-class Processor:
+class ProcessorBase:
 	def process_sample(self, sample: float) -> float:
 		raise NotImplementedError('process_sample() to be implemented by the child class!')
 
@@ -29,7 +29,7 @@ class Processor:
 		return self.process(*args, **kwargs)
 
 
-class CascadedProcessors(Processor):
+class CascadedProcessors(ProcessorBase):
 	def __init__(self, processors):
 		self.processors = processors
 	

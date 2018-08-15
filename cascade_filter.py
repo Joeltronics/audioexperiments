@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from filter import Filter
+from filter_base import FilterBase
 from math import pi, tan
 
 """
@@ -39,7 +39,7 @@ y = ( mg*(mg*(mg*(mg*x + m*s[0]) + m*s[1]) + m*s[2]) + m*s[3] ) / ( 1.0 + r*m4*g
 """
 
 
-class LinearCascadeFilter(Filter):
+class LinearCascadeFilter(FilterBase):
 	"""
 	4 trapezoidal-integration one pole filters cascaded in series, with feedback resonance
 	Equivalent to a ladder filter, OTA cascade filter, or most IC filters, except without nonlinearities

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
-from processor import Processor
+from processor import ProcessorBase
 
 from typing import Tuple, List
 from utils import *
 
 
-class Filter(Processor):
+class FilterBase(ProcessorBase):
 	def set_freq(self, wc: float):
 		"""Set filter cutoff frequency
 
@@ -30,7 +30,7 @@ class Filter(Processor):
 		return y
 
 
-class CascadedFilters(Filter):
+class CascadedFilters(FilterBase):
 	def __init__(self, filters):
 		self.filters = filters
 	
@@ -49,7 +49,7 @@ class CascadedFilters(Filter):
 		return y
 
 
-class ParallelFilters(Filter):
+class ParallelFilters(FilterBase):
 	def __init__(self, filters):
 		self.filters = filters
 
@@ -65,7 +65,7 @@ class ParallelFilters(Filter):
 		return sum([f.process_sample(x) for f in self.filters])
 
 
-class HigherOrderFilter(Processor):
+class HigherOrderFilter(ProcessorBase):
 	def __init__(self, order, a, b, verbose=False):
 		self.order = order
 		self.reset()

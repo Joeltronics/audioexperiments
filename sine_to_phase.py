@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from processor import Processor
+from processor import ProcessorBase
 import utils
 
 from math import pi
@@ -10,7 +10,7 @@ import scipy.stats
 import math
 
 
-class SineToPhase(Processor):
+class SineToPhase(ProcessorBase):
 	def __init__(self):
 		self.prev_s = 0.
 

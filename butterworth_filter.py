@@ -2,11 +2,11 @@
 
 import scipy.signal
 
-from filter import Filter, CascadedFilters, HigherOrderFilter
-from biquad_filter import BiquadFilter
+from filter_base import FilterBase, CascadedFilters, HigherOrderFilter
+from biquad_filter import BiquadFilterBase
 
 
-class ButterworthLowpass(Filter):
+class ButterworthLowpass(FilterBase):
 	def __init__(self, wc, order=4, cascade_sos=True, verbose=False):
 		self.order = order
 		self.cascade_sos = cascade_sos
@@ -22,7 +22,7 @@ class ButterworthLowpass(Filter):
 		if self.cascade_sos:
 			sos = scipy.signal.butter(self.order, wc * 2.0, btype='lowpass', analog=False, output="sos")
 			self.filt = CascadedFilters([
-				BiquadFilter(
+				BiquadFilterBase(
 					(sos[n, 3], sos[n, 4], sos[n, 5]),
 					(sos[n, 0], sos[n, 1], sos[n, 2]),
 				) for n in range(sos.shape[0])
@@ -38,7 +38,7 @@ class ButterworthLowpass(Filter):
 		return self.filt.process_vector(v)
 
 
-class ButterworthHighpass(Filter):
+class ButterworthHighpass(FilterBase):
 	def __init__(self, wc, order=4, cascade_sos=True, verbose=False):
 		self.order = order
 		self.cascade_sos = cascade_sos
@@ -54,7 +54,7 @@ class ButterworthHighpass(Filter):
 		if self.cascade_sos:
 			sos = scipy.signal.butter(self.order, wc * 2.0, btype='highpass', output="sos")
 			self.filt = CascadedFilters([
-				BiquadFilter(
+				BiquadFilterBase(
 					(sos[n, 3], sos[n, 4], sos[n, 5]),
 					(sos[n, 0], sos[n, 1], sos[n, 2]),
 				) for n in range(sos.shape[0])

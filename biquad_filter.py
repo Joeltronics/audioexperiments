@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from filter import Filter
+from filter_base import FilterBase
 from typing import Tuple
 from math import pi, sin, cos, sqrt
 from filter_unit_test import FilterUnitTest
@@ -15,7 +15,7 @@ import overdrive
 _unit_tests = []
 
 
-class BiquadFilter(Filter):
+class BiquadFilterBase(FilterBase):
 	def __init__(self, a: Tuple[float, float, float], b: Tuple[float, float, float]):
 		self.a1 = self.a2 = 0.0
 		self.b0 = self.b1 = self.b2 = 0.0
@@ -70,7 +70,7 @@ class BiquadFilter(Filter):
 # would need to deal with state updates with zi and zf
 
 
-class BiquadLowpass(BiquadFilter):
+class BiquadLowpass(BiquadFilterBase):
 
 	def __init__(self, wc, Q=0.5, verbose=False):
 		self.Q = Q
@@ -142,7 +142,7 @@ _unit_tests.append(FilterUnitTest(
 ))
 
 
-class BiquadHighpass(BiquadFilter):
+class BiquadHighpass(BiquadFilterBase):
 
 	def __init__(self, wc, Q=0.5, verbose=False):
 		self.Q = Q
@@ -213,7 +213,7 @@ _unit_tests.append(FilterUnitTest(
 ))
 
 
-class BiquadBandpass(BiquadFilter):
+class BiquadBandpass(BiquadFilterBase):
 	def __init__(self, wc, Q=0.5, peak_0dB=False, verbose=False):
 		self.Q = Q
 		self.peak_0dB = peak_0dB

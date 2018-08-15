@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
-import filter
+import filter_base
 import butterworth_filter
 import one_pole_filters
 from typing import Tuple
 
 
-class CrossoverLpf(filter.CascadedFilters):
+class CrossoverLpf(filter_base.CascadedFilters):
 	"""Linkwitz-Riley lowpass filter"""
 
 	def __init__(self, wc, order: int=2, verbose=False):
@@ -19,7 +19,7 @@ class CrossoverLpf(filter.CascadedFilters):
 			super().__init__([butterworth_filter.ButterworthLowpass(wc, order, verbose=verbose) for _ in range(2)])
 
 
-class CrossoverHpf(filter.CascadedFilters):
+class CrossoverHpf(filter_base.CascadedFilters):
 	"""Linkwitz-Riley highpass filter"""
 
 	def __init__(self, wc, order: int=2, verbose=False):
@@ -32,7 +32,7 @@ class CrossoverHpf(filter.CascadedFilters):
 			super().__init__([butterworth_filter.ButterworthHighpass(wc, order, verbose=verbose) for _ in range(2)])
 
 
-class _ParallelCrossover(filter.ParallelFilters):
+class _ParallelCrossover(filter_base.ParallelFilters):
 	"""Crossover HPF & LPF in parallel, used for plotting & unit testing"""
 	def __init__(self, *args, **kwargs):
 		super().__init__([CrossoverLpf(*args, **kwargs), CrossoverHpf(*args, **kwargs)])

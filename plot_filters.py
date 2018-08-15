@@ -5,12 +5,12 @@ import utils
 from matplotlib import pyplot as plt
 import math
 from typing import Union, Optional, Iterable, List
-from filter import Filter
+from filter_base import FilterBase
 from freq_response import get_freq_response
 
 
 def plot_filters(
-		constructors: Union[Filter, Iterable[Filter]],
+		constructors: Union[FilterBase, Iterable[FilterBase]],
 		args_list: Optional[Iterable[dict]],
 		freqs: Union[np.ndarray, List[Union[float, int]]],
 		sample_rate=48000.,

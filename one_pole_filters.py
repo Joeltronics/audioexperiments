@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from filter import Filter
+from filter_base import FilterBase
 from filter_unit_test import FilterUnitTest
 import utils
 
@@ -20,7 +20,7 @@ import numpy as np
 _unit_tests = []
 
 
-class BasicOnePole(Filter):
+class BasicOnePole(FilterBase):
 	def __init__(self, wc, verbose=False):
 		self.z1 = 0.0
 		self.a1 = 0.0
@@ -63,7 +63,7 @@ _unit_tests.append(FilterUnitTest(
 ))
 
 
-class BasicOnePoleHighpass(Filter):
+class BasicOnePoleHighpass(FilterBase):
 	def __init__(self, wc, verbose=False):
 		self.lpf = BasicOnePole(wc)
 		if verbose:
@@ -94,7 +94,7 @@ _unit_tests.append(FilterUnitTest(
 ))
 
 
-class TrapzOnePole(Filter):
+class TrapzOnePole(FilterBase):
 	"""Trapezoidal-integration one pole filter"""
 
 	def __init__(self, wc, verbose=False):
@@ -144,7 +144,7 @@ _unit_tests.append(FilterUnitTest(
 ))
 
 
-class TrapzOnePoleHighpass(Filter):
+class TrapzOnePoleHighpass(FilterBase):
 	def __init__(self, wc, verbose=False):
 		self.x_prev = 0.0
 		self.lpf = TrapzOnePole(wc=wc, verbose=verbose)
@@ -172,7 +172,7 @@ _unit_tests.append(FilterUnitTest(
 ))
 
 
-class LeakyIntegrator(Filter):
+class LeakyIntegrator(FilterBase):
 	def __init__(self, wc, w_norm=None, verbose=False):
 		"""
 

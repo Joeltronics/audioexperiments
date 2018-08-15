@@ -3,7 +3,7 @@
 import numpy as np
 import math
 
-from processor import Processor
+from processor import ProcessorBase
 from typing import Union, Tuple, Any
 import signal_generation
 from approx_equal import *
