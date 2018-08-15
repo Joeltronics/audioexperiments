@@ -2,10 +2,14 @@
 
 from filter_base import FilterBase
 from math import pi, tan
+from typing import Optional
+
 
 """
-# Linear cascade filter
+# Cascade filter
 # 4 TrapzOnePole cascaded in series, with feedback resonance
+# This general form is equivalent to ladder filter, OTA cascade filter, or most IC filters - the only difference are the
+# nonlinearities within the poles and in the feedback path
 
 # Recursive base equations
 
@@ -39,6 +43,27 @@ y = ( mg*(mg*(mg*(mg*x + m*s[0]) + m*s[1]) + m*s[2]) + m*s[3] ) / ( 1.0 + r*m4*g
 """
 
 
+def res_to_q(res: float) -> Optional[float]:
+	"""
+	:param res: resonance value
+	:return: Q factor, or None if res out of range [0, 1)
+	"""
+	if not 0.0 <= res < 1.0:
+		return None
+	return 1.25 / (1 - res) - 1
+
+
+def q_to_res(Q: float) -> Optional[float]:
+	"""
+	:param Q: Q factor
+	:return: res, or None if Q < 0.25
+	"""
+	res = 1 - 1.25 / (Q + 1)
+	if res < 0.0:
+		return None
+	return res
+
+
 class LinearCascadeFilter(FilterBase):
 	"""
 	4 trapezoidal-integration one pole filters cascaded in series, with feedback resonance
@@ -46,22 +71,34 @@ class LinearCascadeFilter(FilterBase):
 	Should be completey clean/linear if res < 1
 	"""
 
-	def __init__(self, wc: float, res=0.0, compensate_res=True, verbose=False):
+	def __init__(self, wc: float, res: Optional[float]=None, Q: Optional[float]=None, compensate_res=True, verbose=False):
 		"""
 
 		:param wc: Cutoff frequency
 		:param res: resonance, self oscillation when >= 1.0
+		:param Q: alternative to res
 		:param compensate_res: compensate gain when resonance increases
 		"""
 		self.s = [0.0 for _ in range(4)]  # State vector
 		self.gain_corr = compensate_res
 		self.fb = 0.0
-		self.set_freq(wc, res=res)
+		self.set_freq(wc, res=res, Q=Q)
 		if verbose:
-			print('LinearCascadeFilter: wc=%f, g=%f, fb=%f' % (wc, self.g, self.fb))
+			if Q is not None:
+				print('LinearCascadeFilter: wc=%f -> g=%f, Q=%f -> fb=%f' % (wc, self.g, Q, self.fb))
+			else:
+				print('LinearCascadeFilter: wc=%f -> g=%f, fb=%f' % (wc, self.g, self.fb))
 
-	def set_freq(self, wc, res=None):
+	def set_freq(self, wc, res=None, Q=None):
+
 		self.g = tan(pi * wc)
+
+		if Q is not None:
+			if res is not None:
+				raise ValueError('Cannot set both res and Q')
+			res = q_to_res(Q)
+			if res is None:
+				raise ValueError('Q out of range')
 
 		# Resonance starts at fb=4; map this to res=1
 		if res is not None:
@@ -119,10 +156,33 @@ class LinearCascadeFilter(FilterBase):
 
 		return y * self.gain_corr
 
+
+def determine_res_q():
+	# Empirically determine res-Q mapping
+
+	import freq_response
+
+	wc = 1000. / 48000.
+
+	char_width = 53
+
+	print('=' * char_width)
+	print('  R      1/(1-R)       Q         Q+1      (Q+1)(1-R)')
+	print('-' * char_width)
+	for r in [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.8, 0.85, 0.90, 0.95, 0.96, 0.97, 0.98, 0.985, 0.99, 0.995]:
+		filt = LinearCascadeFilter(wc=wc, res=r)
+		# Q is equal to magnitude response at cutoff frequency (linear, not dB)
+		Q, = freq_response.get_freq_response(filt, freqs=[1000.], sample_rate=48000., n_samp=48000, mag=True, rms=False, phase=False, group_delay=False)
+		print('%.3f  %10.6f  %10.6f  %10.6f   %.3f' % (
+			r, 1.0 / (1.0 - r), Q, Q + 1.0, (Q + 1.0)*(1.0 - r)))
+	print('=' * char_width)
+
+
 def main():
 	import numpy as np
 	from matplotlib import pyplot as plt
 	from plot_filters import plot_filters
+	from math import sqrt
 
 	default_cutoff = 1000.
 	sample_rate = 48000.
@@ -131,21 +191,33 @@ def main():
 	filter_list = [
 		(LinearCascadeFilter, [
 			dict(res=0.0),
+			dict(res=0.125),
 			dict(res=0.25),
+			dict(res=0.375),
 			dict(res=0.5),
 			dict(res=0.75),
 			dict(res=0.95),
-		]),
+		], True),
+		(LinearCascadeFilter, [
+			dict(Q=0.25),
+			dict(Q=0.5),
+			dict(Q=1.0/sqrt(2.0)),
+			dict(Q=1.0),
+			dict(Q=4.0),
+		], False),
 	]
 
 	freqs = np.array([
 		10., 20., 30., 50.,
-		100., 200., 300., 500., 700., 800., 900., 950.,
-		1000., 1050., 1100., 1200., 1300., 1500., 2000., 3000., 5000.,
+		100., 200., 300., 400.,
+		500., 550., 600., 650., 700., 750., 800., 850.,
+		900., 925., 950., 975., 980., 985., 990., 995.,
+		1000., 1025., 1050., 1075.,
+		1100., 1200., 1300., 1500., 2000., 3000., 5000.,
 		10000., 11000., 13000., 15000., 20000.])
 
-	for filter_types, extra_args_list in filter_list:
-		plot_filters(filter_types, extra_args_list, freqs, sample_rate, default_cutoff, zoom=True, phase=True, group_delay=True)
+	for filter_types, extra_args_list, extra_plots in filter_list:
+		plot_filters(filter_types, extra_args_list, freqs, sample_rate, default_cutoff, zoom=extra_plots, phase=extra_plots, group_delay=extra_plots)
 
 	plt.show()
 
