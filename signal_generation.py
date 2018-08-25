@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import numpy as np
-from typing import Tuple
+from typing import Tuple, Union, Optional
 
 
 def sample_time_index(n_samp: int, sample_rate: float) -> np.ndarray:
@@ -26,28 +26,32 @@ def phase_to_cos(phase):
 	return phase_to_sine((phase + 0.25) % 1.0)
 
 
-def gen_phase(freq_norm: float, n_samp: int, start_phase=0.0, allow_aliasing=False) -> np.ndarray:
+def gen_phase(freq_norm: Union[float, np.ndarray], n_samp: Optional[int]=None, start_phase=0.0, allow_aliasing=False) -> np.ndarray:
 	"""
 
-	:param freq_norm: normalized frequency, i.e. freq / sample rate
+	:param freq_norm: normalized frequency, i.e. freq / sample rate. Either a scalar or an nd.array of length n_samp
 	:param n_samp:
 	:param start_phase:
 	:param allow_aliasing: if False, will raise ValueError if freq_norm is out of range[0.0, 0.5]
 	:return:
 	"""
 
-	if not allow_aliasing and (freq_norm <= 0.0 or freq_norm >= 0.5):
+	if not allow_aliasing and (np.amin(freq_norm) <= 0.0 or np.amax(freq_norm) >= 0.5):
 		raise ValueError("freq out of range: %f" % freq_norm)
 
-	# TODO: vectorize this
+	if np.isscalar(freq_norm):
+		if n_samp is None:
+			raise ValueError("Must give n_samp if using scalar frequency")
 
-	ph = np.zeros(n_samp)
-	phase = start_phase
+		ph = np.arange(n_samp) * freq_norm
+	else:
+		if n_samp and len(freq_norm) != n_samp:
+			raise ValueError("n_samp given different size from len(freq_norm)")
 
-	for n in range(n_samp):
-		ph[n] = phase
-		phase += freq_norm
+		ph = np.cumsum(freq_norm)
 
+	# TODO: could make this slightly more efficient by starting at correct phase instead of adding (not worth the work for now)
+	ph += (start_phase - ph[0])
 	ph = np.mod(ph, 1.0)
 
 	return ph
@@ -98,16 +102,30 @@ def gen_square(freq_norm: float, n_samp: int) -> np.ndarray:
 	return ((p >= 0.5) * 2 - 1).astype(float)
 
 
+def gen_freq_sweep_phase(start_freq_norm: float, end_freq_norm: float, n_samp: int, log=True, start_phase=0.0) -> np.ndarray:
+	if log:
+		f = np.logspace(np.log2(start_freq_norm), np.log2(end_freq_norm), n_samp, base=2)
+	else:
+		f = np.linspace(start_freq_norm, end_freq_norm, n_samp)
+
+	return gen_phase(f, start_phase=start_phase)
+
+
+def gen_freq_sweep_sine(start_freq_norm: float, end_freq_norm: float, n_samp: int, log=True, start_phase=0.0) -> np.ndarray:
+	ph = gen_freq_sweep_phase(start_freq_norm, end_freq_norm, n_samp, log=log, start_phase=start_phase)
+	return phase_to_sine(ph)
+
+
 if __name__ == "__main__":
 	from matplotlib import pyplot as plt
 	import math
 
-	freq = 440.
+	freq = 110.
 	sample_rate = 48000.
 	freq_norm = freq / sample_rate
 
-	# Period is around 110 samples
-	n_samp = 256
+	# Period is around 436 samples
+	n_samp = 1024
 
 	t = sample_time_index(n_samp, sample_rate)
 
@@ -150,5 +168,32 @@ if __name__ == "__main__":
 	plt.legend()
 	plt.xlabel('Phase')
 	plt.ylabel('Signal')
+
+	plt.figure()
+
+	sample_rate = 48000.
+	n_samp = 8192
+	start_freq = 20. / sample_rate
+	end_freq = 20000. / sample_rate
+	sweep_log = gen_freq_sweep_sine(start_freq, end_freq, n_samp, log=True)
+	sweep_lin = gen_freq_sweep_sine(start_freq, end_freq, n_samp, log=False)
+
+	t = sample_time_index(n_samp, sample_rate)
+
+	plt.subplot(211)
+
+	plt.plot(t, sweep_log)
+
+	plt.grid()
+	plt.title('Frequency sweeps')
+	plt.ylabel('Log sweep')
+
+	plt.subplot(212)
+
+	plt.plot(t, sweep_lin)
+
+	plt.grid()
+	plt.ylabel('Lin sweep')
+	plt.xlabel('Time (seconds)')
 
 	plt.show()
