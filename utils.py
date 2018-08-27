@@ -4,7 +4,7 @@ import numpy as np
 import math
 
 from processor import ProcessorBase
-from typing import Union, Tuple, Any
+from typing import Union, Tuple, Any, List
 import signal_generation
 from approx_equal import *
 
@@ -229,6 +229,53 @@ def _test_normalize():
 
 
 _unit_tests.append(_test_normalize)
+
+
+def shift_in_place(x: Union[np.ndarray, List], input_val=0.0, dir=1):
+	"""Shift array 1 value to the right or left
+
+	Like np.roll, but in-place
+
+	:param x:
+	:param input_val: new value to be added to x[0] or x[-1]
+	:param dir: if positive, x[0] will be moved into x[1], etc
+	:return:
+	"""
+	if dir == 0:
+		raise ValueError('Dir must not be zero!')
+
+	elif dir > 0:
+		for n in range(len(x)-1, 0, -1):
+			x[n] = x[n-1]
+		x[0] = input_val
+
+	else:
+		for n in range(len(x)-1):
+			x[n] = x[n+1]
+		x[-1] = input_val
+
+
+def _test_shift_in_place():
+	x = np.array([1, 2, 3, 4, 5], dtype=np.float)
+
+	y = np.copy(x)
+	shift_in_place(y, dir=1)
+	unit_test.test_approx_equal(y, [0, 1, 2, 3, 4])
+
+	y = np.copy(x)
+	shift_in_place(y, dir=-1)
+	unit_test.test_approx_equal(y, [2, 3, 4, 5, 0])
+
+	y = np.copy(x)
+	shift_in_place(y, dir=1, input_val=573)
+	unit_test.test_approx_equal(y, [573, 1, 2, 3, 4])
+
+	y = np.copy(x)
+	shift_in_place(y, dir=-1, input_val=573)
+	unit_test.test_approx_equal(y, [2, 3, 4, 5, 573])
+
+
+_unit_tests.append(_test_shift_in_place)
 
 
 if __name__ == "__main__":

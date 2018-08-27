@@ -1,87 +1,135 @@
 #!/usr/bin/env python3
 
-from filter_base import FilterBase
+from filter_base import FilterBase, FilterForm
 from typing import Tuple
 from math import pi, sin, cos, sqrt
 from filter_unit_test import FilterUnitTest
 import numpy as np
+import scipy.signal
 import overdrive
-
-
-# TODO: could have much more efficient process_vector using scipy.signal.lfilter
-# would need to deal with state updates with zi and zf
+import utils
 
 
 _unit_tests = []
 
 
 class BiquadFilterBase(FilterBase):
-	def __init__(self, a: Tuple[float, float, float], b: Tuple[float, float, float]):
-		self.a1 = self.a2 = 0.0
-		self.b0 = self.b1 = self.b2 = 0.0
+	def __init__(
+			self,
+			a: Tuple[float, float, float],
+			b: Tuple[float, float, float],
+			form=FilterForm.D2t):
+
+		# Internal data type
+		self.dtype = np.float64
+
+		# D2t by default because it can be vectorized with scipy.lfilter
+		self.form = form
+
 		self.set_coeffs(a, b)
-
-		# Previous 2 inputs
-		self.x1 = self.x2 = 0.0
-
-		# Previous 2 outputs
-		self.y1 = self.y2 = 0.0
+		self.reset()
 
 	def reset(self):
-		self.x1 = self.x2 = self.y1 = self.y2 = 0.0
+		if self.form in [FilterForm.D2, FilterForm.D2t]:
+			self.z = np.array([0.0, 0.0], dtype=self.dtype)
+		else:
+			self.zx = np.array([0.0, 0.0], dtype=self.dtype)
+			self.zy = np.array([0.0, 0.0], dtype=self.dtype)
 
 	def set_coeffs(self, a: Tuple[float, float, float], b: Tuple[float, float, float]):
 		if len(a) != len(b) != 3:
 			raise ValueError('biquad a & b coeff vectors must have length 3')
 
-		a0, a1, a2 = a
-		b0, b1, b2 = b
+		if a[0] == 0.0:
+			raise ZeroDivisionError('Biquad a0 coeff must not be 0')
 
-		if a0 == 0.0:
-			raise ValueError('Biquad a0 coeff must not be 0')
+		# Normalize so that a[0] == 1
+		self.a = np.array(a, dtype=self.dtype) / a[0]
+		self.b = np.array(b, dtype=self.dtype) / a[0]
 
-		# Normalize so that self.a0 == 1
-		self.b0 = b0 / a0
-		self.b1 = b1 / a0
-		self.b2 = b2 / a0
-		self.a1 = a1 / a0
-		self.a2 = a2 / a0
+		assert utils.approx_equal_scalar(self.a[0], 1.0)
 
 	def process_sample(self, x):
 
-		# Assign these to make the math readable below
-		a1 = self.a1; a2 = self.a2
-		b0 = self.b0; b1 = self.b1; b2 = self.b2
+		_, a1, a2 = self.a
+		b0, b1, b2 = self.b
 
-		x1 = self.x1; x2 = self.x2
-		y1 = self.y1; y2 = self.y2
+		if self.form == FilterForm.D1:
 
-		# DF1
-		y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+			x1, x2 = self.zx
+			y1, y2 = self.zy
 
-		# Update state
-		self.x2 = self.x1; self.x1 = x
-		self.y2 = self.y1; self.y1 = y
+			y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+
+			# Update state
+			self.zx[1] = self.zx[0]
+			self.zx[0] = x
+
+			self.zy[1] = self.zy[0]
+			self.zy[0] = y
+
+		elif self.form == FilterForm.D1t:
+
+			x1, x2 = self.zx
+			y1, y2 = self.zy
+
+			v = x + x1
+			y = b0 * v + y1
+
+			self.zx[0] = self.zx[1] - a1*v
+			self.zx[1] = -a2 * v
+
+			self.zy[0] = self.zy[1] + b1*v
+			self.zy[1] = b2 * v
+
+		elif self.form == FilterForm.D2:
+
+			z1, z2 = self.z
+
+			v = x - a1 * z1 - a2 * z2
+			y = b0 * v + b1 * z1 + b2 * z2
+
+			self.z[1] = self.z[0]
+			self.z[0] = v
+
+		elif self.form == FilterForm.D2t:
+
+			y = b0*x + self.z[0]
+
+			self.z[0] = self.z[1] + b1 * x - a1 * y
+			self.z[1] = b2 * x - a2 * y
+
+		else:
+			raise ValueError('Unexpected filter form %s!' % str(self.form.value))
+
+		return y
+
+	def process_vector(self, vec: np.ndarray) -> np.ndarray:
+
+		if self.form == FilterForm.D2t:
+			y, self.z = scipy.signal.lfilter(b=self.b, a=self.a, x=vec, zi=self.z)
+			assert len(self.z) == 2
+
+		else:
+			y = np.zeros_like(vec)
+			for n, x in enumerate(vec):
+				y[n] = self.process_sample(x)
 
 		return y
 
 
-# TODO: could add much more efficient process_vector using scipy.signal.lfilter
-# would need to deal with state updates with zi and zf
-
-
 class BiquadLowpass(BiquadFilterBase):
 
-	def __init__(self, wc, Q=0.5, verbose=False):
+	def __init__(self, wc, Q=0.5, verbose=False, form=FilterForm.D2t):
 		self.Q = Q
 		a, b = self._get_coeffs(wc, self.Q)
-		super().__init__(a, b)
+		super().__init__(a, b, form=form)
 
 		if verbose:
 			print('Biquad lowpass filter: wc=%f, Q=%.2f, A:[1, %f, %f], B:[%f, %f, %f]' % (
 				wc, self.Q,
-				self.a1, self.a2,
-				self.b0, self.b1, self.b2))
+				self.a[1], self.a[2],
+				self.b[0], self.b[1], self.b[2]))
 
 	@staticmethod
 	def _get_coeffs(wc, Q):
@@ -112,8 +160,38 @@ class BiquadLowpass(BiquadFilterBase):
 
 
 _unit_tests.append(FilterUnitTest(
-	"BiquadLowpass(1 kHz @ 44.1 kHz, Q=0.5)",
-	lambda: BiquadLowpass(1. / 44.1, Q=0.5),
+	"BiquadLowpass(1 kHz @ 44.1 kHz, Q=0.5, DF1)",
+	lambda: BiquadLowpass(1. / 44.1, Q=0.5, form=FilterForm.D1),
+	freqs_to_test=np.array([10., 31.62, 100., 316.2, 1000., 3162., 10000.]) / 44100.,
+	expected_freq_response_range_dB=[(-0.1, 0.0), (-1., 0.), (-3.0, 0.0), (-3.0, 0.0), (-6.1, -5.9), (-22., -20.), (-44.0, -40.0)],
+	expected_phase_response_range_degrees=None,  # [(), (), (), None],
+	deterministic=True,
+	linear=True
+))
+
+_unit_tests.append(FilterUnitTest(
+	"BiquadLowpass(1 kHz @ 44.1 kHz, Q=0.5, Df2)",
+	lambda: BiquadLowpass(1. / 44.1, Q=0.5, form=FilterForm.D2),
+	freqs_to_test=np.array([10., 31.62, 100., 316.2, 1000., 3162., 10000.]) / 44100.,
+	expected_freq_response_range_dB=[(-0.1, 0.0), (-1., 0.), (-3.0, 0.0), (-3.0, 0.0), (-6.1, -5.9), (-22., -20.), (-44.0, -40.0)],
+	expected_phase_response_range_degrees=None,  # [(), (), (), None],
+	deterministic=True,
+	linear=True
+))
+
+_unit_tests.append(FilterUnitTest(
+	"BiquadLowpass(1 kHz @ 44.1 kHz, Q=0.5, Transposed DF1)",
+	lambda: BiquadLowpass(1. / 44.1, Q=0.5, form=FilterForm.D1t),
+	freqs_to_test=np.array([10., 31.62, 100., 316.2, 1000., 3162., 10000.]) / 44100.,
+	expected_freq_response_range_dB=[(-0.1, 0.0), (-1., 0.), (-3.0, 0.0), (-3.0, 0.0), (-6.1, -5.9), (-22., -20.), (-44.0, -40.0)],
+	expected_phase_response_range_degrees=None,  # [(), (), (), None],
+	deterministic=True,
+	linear=True
+))
+
+_unit_tests.append(FilterUnitTest(
+	"BiquadLowpass(1 kHz @ 44.1 kHz, Q=0.5, Transposed DF2)",
+	lambda: BiquadLowpass(1. / 44.1, Q=0.5, form=FilterForm.D2t),
 	freqs_to_test=np.array([10., 31.62, 100., 316.2, 1000., 3162., 10000.]) / 44100.,
 	expected_freq_response_range_dB=[(-0.1, 0.0), (-1., 0.), (-3.0, 0.0), (-3.0, 0.0), (-6.1, -5.9), (-22., -20.), (-44.0, -40.0)],
 	expected_phase_response_range_degrees=None,  # [(), (), (), None],
@@ -144,16 +222,16 @@ _unit_tests.append(FilterUnitTest(
 
 class BiquadHighpass(BiquadFilterBase):
 
-	def __init__(self, wc, Q=0.5, verbose=False):
+	def __init__(self, wc, Q=0.5, verbose=False, form=FilterForm.D2t):
 		self.Q = Q
 		a, b = self._get_coeffs(wc, self.Q)
-		super().__init__(a, b)
+		super().__init__(a, b, form=form)
 
 		if verbose:
 			print('Biquad highpass filter: wc=%f, Q=%.2f, A:[1, %f, %f], B:[%f, %f, %f]' % (
 				wc, self.Q,
-				self.a1, self.a2,
-				self.b0, self.b1, self.b2))
+				self.a[1], self.a[2],
+				self.b[0], self.b[1], self.b[2]))
 
 	@staticmethod
 	def _get_coeffs(wc, Q):
@@ -214,17 +292,17 @@ _unit_tests.append(FilterUnitTest(
 
 
 class BiquadBandpass(BiquadFilterBase):
-	def __init__(self, wc, Q=0.5, peak_0dB=False, verbose=False):
+	def __init__(self, wc, Q=0.5, peak_0dB=False, verbose=False, form=FilterForm.D2t):
 		self.Q = Q
 		self.peak_0dB = peak_0dB
 		a, b = self._get_coeffs(wc, self.Q, self.peak_0dB)
-		super().__init__(a, b)
+		super().__init__(a, b, form=form)
 
 		if verbose:
 			print('Biquad bandpass filter: wc=%f, Q=%.2f, A:[1, %f, %f], B:[%f, 0, %f]' % (
 				wc, self.Q,
-				self.a1, self.a2,
-				self.b0, self.b2))
+				self.a[1], self.a[2],
+				self.b[0], self.b[2]))
 
 	@staticmethod
 	def _get_coeffs(wc, Q, peak_0dB):
@@ -275,23 +353,52 @@ class Rossum92Biquad(BiquadLowpass):
 	"Making Digital Filters Sound 'Analog'"
 	"""
 
-	def __init__(self, wc, Q=0.5, verbose=False):
-		super().__init__(wc, Q=Q, verbose=verbose)
+	def __init__(self, wc, Q=0.5, verbose=False, form=FilterForm.D1):
+		super().__init__(wc, Q=Q, verbose=verbose, form=form)
 
 	def process_sample(self, x: float) -> float:
-		# Assign these to make the math readable below
-		a1 = self.a1; a2 = self.a2
-		b0 = self.b0; b1 = self.b1; b2 = self.b2
 
-		x1 = self.x1; x2 = self.x2
-		y1 = self.y1; y2 = self.y2
+		if self.form == FilterForm.D1:
+			y = super().process_sample(x)
+			self.zx[0] = overdrive.tanh(self.zx[0])
 
-		# DF1
-		y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+		elif self.form == FilterForm.D2:
+			y = super().process_sample(x)
+			self.z[0] = overdrive.tanh(self.z[0])
 
-		# Update state
-		self.x2 = self.x1; self.x1 = overdrive.tanh(x)
-		self.y2 = self.y1; self.y1 = y
+		elif self.form == FilterForm.D1t:
+
+			_, a1, a2 = self.a
+			b0, b1, b2 = self.b
+
+			x1, x2 = self.zx
+			y1, y2 = self.zy
+
+			v = x + x1
+			y = b0 * v + y1
+
+			vo = overdrive.tanh(v)
+
+			self.zx[0] = self.zx[1] - a1*vo
+			self.zx[1] = -a2*vo
+
+			self.zy[0] = self.zy[1] + b1*v
+			self.zy[1] = b2*v
+
+		elif self.form == FilterForm.D2t:
+
+			_, a1, a2 = self.a
+			b0, b1, b2 = self.b
+
+			y = b0 * x + self.z[0]
+
+			xo = overdrive.tanh(x)
+
+			self.z[0] = self.z[1] + b1 * xo - a1 * y
+			self.z[1] = b2 * xo - a2 * y
+
+		else:
+			raise AssertionError('Invalid form: %s' % self.form.value)
 
 		return y
 
@@ -307,8 +414,8 @@ class OverdrivenInputBiquad(BiquadLowpass):
 	2-pole lowpass filter with just the input overdriven
 	"""
 
-	def __init__(self, wc, Q=0.5, verbose=False):
-		super().__init__(wc, Q=Q, verbose=verbose)
+	def __init__(self, wc, Q=0.5, verbose=False, form=FilterForm.D2t):
+		super().__init__(wc, Q=Q, verbose=verbose, form=form)
 
 	def process_sample(self, x: float) -> float:
 		return super().process_sample(overdrive.tanh(x))
@@ -345,16 +452,31 @@ def plot_nonlinear(args):
 	Q = 1.0 / sqrt(2.0)  # 0.7071
 
 	filters = [
-		(BiquadLowpass, dict(wc=wc, Q=Q, gain=1.0)),
-		(Rossum92Biquad, dict(wc=wc, Q=Q, gain=1.0)),
-		(OverdrivenInputBiquad, dict(wc=wc, Q=Q, gain=1.0)),
+		[
+			(BiquadLowpass, dict(wc=wc, Q=Q, gain=1.0)),
+			(Rossum92Biquad, dict(wc=wc, Q=Q, gain=1.0, form=FilterForm.D1)),
+			(Rossum92Biquad, dict(wc=wc, Q=Q, gain=1.0, form=FilterForm.D2)),
+			(Rossum92Biquad, dict(wc=wc, Q=Q, gain=1.0, form=FilterForm.D1t)),
+			(Rossum92Biquad, dict(wc=wc, Q=Q, gain=1.0, form=FilterForm.D2t)),
+			(OverdrivenInputBiquad, dict(wc=wc, Q=Q, gain=1.0)),
+		],
 
-		(BiquadLowpass, dict(wc=wc, Q=2.0, gain=1.0)),
-		(Rossum92Biquad, dict(wc=wc, Q=2.0, gain=1.0)),
-		(OverdrivenInputBiquad, dict(wc=wc, Q=2.0, gain=1.0)),
+		[
+			(BiquadLowpass, dict(wc=wc, Q=2.0, gain=1.0)),
+			(Rossum92Biquad, dict(wc=wc, Q=2.0, gain=1.0, form=FilterForm.D1)),
+			(Rossum92Biquad, dict(wc=wc, Q=2.0, gain=1.0, form=FilterForm.D2)),
+			(Rossum92Biquad, dict(wc=wc, Q=2.0, gain=1.0, form=FilterForm.D1t)),
+			(Rossum92Biquad, dict(wc=wc, Q=2.0, gain=1.0, form=FilterForm.D1t)),
+			(OverdrivenInputBiquad, dict(wc=wc, Q=2.0, gain=1.0)),
+		],
 
-		(Rossum92Biquad, dict(wc=wc, Q=Q, gain=10.0)),
-		(OverdrivenInputBiquad, dict(wc=wc, Q=Q, gain=10.0)),
+		[
+			(Rossum92Biquad, dict(wc=wc, Q=Q, gain=10.0, form=FilterForm.D1)),
+			(Rossum92Biquad, dict(wc=wc, Q=Q, gain=10.0, form=FilterForm.D2)),
+			(Rossum92Biquad, dict(wc=wc, Q=Q, gain=10.0, form=FilterForm.D1t)),
+			(Rossum92Biquad, dict(wc=wc, Q=Q, gain=10.0, form=FilterForm.D2t)),
+			(OverdrivenInputBiquad, dict(wc=wc, Q=Q, gain=10.0)),
+		],
 	]
 
 	saws = \
@@ -366,50 +488,47 @@ def plot_nonlinear(args):
 
 	t = signal_generation.sample_time_index(n_samp, sample_rate)
 
-	plt.figure()
-
-	plt.plot(t, saws, label='Input')
-
 	data_out = np.copy(saws) if args.outfile else None
 
-	for constructor, filt_args in filters:
+	for filter_list in filters:
+		plt.figure()
+		plt.plot(t, saws, label='Input')
 
-		args_list = ', '.join([
-			'%s=%s' % (k, to_pretty_str(v, num_decimals=3))
-			for k, v in filt_args.items()])
+		for constructor, filt_args in filter_list:
 
-		name = '%s(%s)' % (constructor.__name__, args_list)
+			args_list = ', '.join([
+				'%s=%s' % (k, to_pretty_str(v, num_decimals=3))
+				for k, v in filt_args.items()])
 
-		print('Processing %s' % name)
+			name = '%s(%s)' % (constructor.__name__, args_list)
 
-		gain = filt_args.pop('gain') if 'gain' in filt_args else 1.0
+			print('Processing %s' % name)
 
-		filt = constructor(**filt_args)
+			gain = filt_args.pop('gain') if 'gain' in filt_args else 1.0
 
-		x = saws * gain
-		y = filt.process_freq_sweep(
-			x,
-			cutoff_start / sample_rate,
-			cutoff_end / sample_rate,
-			log=True)
-		y /= gain
+			filt = constructor(**filt_args)
 
-		if data_out is not None:
-			data_out = np.append(data_out, y)
+			x = saws * gain
+			y = filt.process_freq_sweep(
+				x,
+				cutoff_start / sample_rate,
+				cutoff_end / sample_rate,
+				log=True)
+			y /= gain
 
-		plt.plot(t, y, label=name)
+			if data_out is not None:
+				data_out = np.append(data_out, y)
 
-	plt.xlabel('Time (s)')
-	plt.legend()
+			plt.plot(t, y, label=name)
 
-	plt.grid()
+		plt.xlabel('Time (s)')
+		plt.legend()
+		plt.grid()
 
 	if args.outfile:
 		print('Saving %s' % args.outfile)
 		data_out = utils.normalize(data_out)
 		wavfile.export_wavfile(data_out, sample_rate, args.outfile, allow_overwrite=True)
-
-	plt.show()
 
 
 def plot_freq_resp(args):
@@ -426,6 +545,11 @@ def plot_freq_resp(args):
 			dict(Q=one_over_sqrt2),
 			dict(Q=1.0),
 			dict(Q=2.0)]),
+		(BiquadLowpass, [
+			dict(Q=2.0, form=FilterForm.D1),
+			dict(Q=2.0, form=FilterForm.D2),
+			dict(Q=2.0, form=FilterForm.D1t),
+			dict(Q=2.0, form=FilterForm.D2t),]),
 		(BiquadHighpass, [
 			dict(Q=0.5),
 			dict(Q=one_over_sqrt2),
@@ -470,6 +594,7 @@ def main():
 	plot_freq_resp(args)
 	plot_nonlinear(args)
 
+	print('Showing plots')
 	plt.show()
 
 

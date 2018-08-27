@@ -44,14 +44,7 @@ class CascadedProcessors(ProcessorBase):
 		return y
 	
 	def process_vector(self, vec: np.array) -> np.array:
-		# TODO: profile this, see which is faster
-		if True:
-			y = np.zeros_like(vec)
-			for n, x in enumerate(vec):
-				for m, p in enumerate(self.processors):
-					y[n] = p.process_sample(x if m == 0 else y[n])
-		else:
-			y = vec
-			for p in self.processors:
-				y = p.process_vector(y)
+		y = vec
+		for p in self.processors:
+			y = p.process_vector(y)
 		return y

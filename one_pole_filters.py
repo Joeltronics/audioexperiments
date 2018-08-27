@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 
-from filter_base import FilterBase
+from filter_base import FilterBase, FilterForm
 from filter_unit_test import FilterUnitTest
 import utils
 
 from math import pi, exp, tan, log10
 import numpy as np
+import scipy.signal
 
 
 # TODO: figure out why one pole filter response is way off, and tighten up test requirements
@@ -13,44 +14,115 @@ import numpy as np
 # Seems to be an error in calculating coeffs
 
 
-# TODO: could have much more efficient process_vector using scipy.signal.lfilter
-# would need to deal with state updates with zi and zf
-
-
 _unit_tests = []
 
 
 class BasicOnePole(FilterBase):
-	def __init__(self, wc, verbose=False):
+	def __init__(self, wc, verbose=False, form=FilterForm.D2t):
+
 		self.z1 = 0.0
-		self.a1 = 0.0
+		self.na1 = 0.0  # -a1
 		self.b0 = 0.0
+
+		# D2t by default because it can be vectorized with scipy.lfilter
+		self.form = form
+
 		self.set_freq(wc)
 		if verbose:
-			print('Basic one pole filter: wc=%f, a1=%f, b0=%f' % (wc, self.a1, self.b0))
+			print('Basic one pole filter: wc=%f, a1=%f, b0=%f' % (wc, -self.na1, self.b0))
 
 	def reset(self):
 		self.z1 = 0.0
 
 	def set_freq(self, wc):
-		self.a1 = exp(-2.0 * pi * wc)
-		self.b0 = 1.0 - self.a1
+		self.na1 = exp(-2.0 * pi * wc)
+		self.b0 = 1.0 - self.na1
+
+		assert self.na1 > 0.0
+		assert self.b0 > 0.0
 
 	def process_sample(self, x):
-		self.z1 = self.b0 * x + self.a1 * self.z1
-		y = self.z1
+
+		if self.form == FilterForm.D1:
+			self.z1 = (self.b0 * x) + (self.na1 * self.z1)
+			y = self.z1
+
+		elif self.form == FilterForm.D2:
+			self.z1 = x + (self.na1 * self.z1)
+			y = self.b0 * self.z1
+
+		elif self.form == FilterForm.D1t:
+			v = self.z1 + x
+			self.z1 = (self.na1 * v)
+			y = v * self.b0
+
+		elif self.form == FilterForm.D2t:
+			y = (self.b0 * x) + self.z1
+			self.z1 = (self.na1 * y)
+
+		else:
+			raise ValueError('Unexpected filter form %s!' % str(self.form.value))
+
+		return y
+
+	def process_vector(self, vec: np.ndarray) -> np.ndarray:
+
+		# TODO: it would be pretty easy to use scipy with other forms
+		# have to convert z between forms - fairly easy when there's only 1 z var, just have to figure out the math
+
+		if self.form == FilterForm.D2t:
+			y, zf = scipy.signal.lfilter(b=[self.b0], a=[1.0, -self.na1], x=vec, zi=[self.z1])
+
+			assert len(zf) == 1
+			self.z1 = zf[0]
+
+		else:
+			y = np.zeros_like(vec)
+			for n, x in enumerate(vec):
+				y[n] = self.process_sample(x)
+
 		return y
 
 
 _unit_tests.append(FilterUnitTest(
-	"BasicOnePole(1 kHz @ 44.1 kHz)",
-	lambda: BasicOnePole(1. / 44.1),
-	freqs_to_test=np.array([10., 100., 1000., 10000.]) / 44100.,
-	expected_freq_response_range_dB=[(-0.1, 0.0), (-3.0, 0.0), (-4.0, -2.0), (-24.0, -18.0)],
-	expected_phase_response_range_degrees=None,  # [(), (), (), None],
-	deterministic=True,
-	linear=True
-))
+		"BasicOnePole(1 kHz @ 44.1 kHz), DF1",
+		lambda: BasicOnePole(1. / 44.1, form=FilterForm.D1),
+		freqs_to_test=np.array([10., 100., 1000., 10000.]) / 44100.,
+		expected_freq_response_range_dB=[(-0.1, 0.0), (-3.0, 0.0), (-4.0, -2.0), (-24.0, -18.0)],
+		expected_phase_response_range_degrees=None,  # [(), (), (), None],
+		deterministic=True,
+		linear=True
+	))
+
+_unit_tests.append(FilterUnitTest(
+		"BasicOnePole(1 kHz @ 44.1 kHz), DF2",
+		lambda: BasicOnePole(1. / 44.1, form=FilterForm.D2),
+		freqs_to_test=np.array([10., 100., 1000., 10000.]) / 44100.,
+		expected_freq_response_range_dB=[(-0.1, 0.0), (-3.0, 0.0), (-4.0, -2.0), (-24.0, -18.0)],
+		expected_phase_response_range_degrees=None,  # [(), (), (), None],
+		deterministic=True,
+		linear=True
+	))
+
+_unit_tests.append(FilterUnitTest(
+		"BasicOnePole(1 kHz @ 44.1 kHz), Transposed DF1",
+		lambda: BasicOnePole(1. / 44.1, form=FilterForm.D1t),
+		freqs_to_test=np.array([10., 100., 1000., 10000.]) / 44100.,
+		expected_freq_response_range_dB=[(-0.1, 0.0), (-3.0, 0.0), (-4.0, -2.0), (-24.0, -18.0)],
+		expected_phase_response_range_degrees=None,  # [(), (), (), None],
+		deterministic=True,
+		linear=True
+	))
+
+_unit_tests.append(FilterUnitTest(
+		"BasicOnePole(1 kHz @ 44.1 kHz), Transposed DF2",
+		lambda: BasicOnePole(1. / 44.1, form=FilterForm.D2t),
+		freqs_to_test=np.array([10., 100., 1000., 10000.]) / 44100.,
+		expected_freq_response_range_dB=[(-0.1, 0.0), (-3.0, 0.0), (-4.0, -2.0), (-24.0, -18.0)],
+		expected_phase_response_range_degrees=None,  # [(), (), (), None],
+		deterministic=True,
+		linear=True
+	))
 
 _unit_tests.append(FilterUnitTest(
 	"BasicOnePole(100 Hz @ 44.1 kHz)",
@@ -64,11 +136,11 @@ _unit_tests.append(FilterUnitTest(
 
 
 class BasicOnePoleHighpass(FilterBase):
-	def __init__(self, wc, verbose=False):
-		self.lpf = BasicOnePole(wc)
+	def __init__(self, wc, verbose=False, form=FilterForm.D2t):
+		self.lpf = BasicOnePole(wc, form=form)
 		if verbose:
 			print(
-				'Basic one pole highpass filter - underlying LPF: wc=%f, a1=%f, b0=%f' % (wc, self.lpf.a1, self.lpf.b0))
+				'Basic one pole highpass filter - underlying LPF: wc=%f, a1=%f, b0=%f' % (wc, -self.lpf.na1, self.lpf.b0))
 
 	def reset(self):
 		self.lpf.reset()
@@ -153,6 +225,7 @@ class TrapzOnePoleHighpass(FilterBase):
 		self.lpf.set_freq(wc)
 
 	def reset(self):
+		self.x_prev = 0.0
 		self.lpf.reset()
 
 	def process_sample(self, x):
@@ -181,21 +254,19 @@ class LeakyIntegrator(FilterBase):
 		:param verbose:
 		"""
 
-		self.z1 = 0.0
 		self.w_norm = w_norm
-		self.set_freq(wc)
-		if verbose:
-			print('Leaky integrator: wc=%f, alpha=%f, w_norm=%s, gain=%.2f dB' % (
-			wc, self.alpha, str(self.w_norm), utils.to_dB(self.gain)))
+		self.lpf = BasicOnePole(wc)
 
-	def reset(self):
-		self.z1 = 0.0
+		self._set_gain(wc)
+
+		if verbose:
+			print('Leaky integrator: wc=%f, a1=%f, b0=%f, gain=%.2f dB' % (wc, -self.lpf.na1, self.lpf.b0, utils.to_dB(self.gain)))
 
 	def set_freq(self, wc):
-		self.alpha = exp(-2.0 * pi * wc)
-		self.one_minus_alpha = 1.0 - self.alpha
+		self.lpf.set_freq(wc)
+		self._set_gain(wc)
 
-		# Now calculate gain
+	def _set_gain(self, wc):
 		if self.w_norm is None:
 			self.gain = 1.0
 		else:
@@ -204,8 +275,10 @@ class LeakyIntegrator(FilterBase):
 			self.gain = utils.from_dB(decades_above_w_norm * 20.0)
 
 	def process_sample(self, x):
-		self.z1 = self.alpha * self.z1 + x * self.one_minus_alpha
-		return self.gain * self.z1
+		return self.gain * self.lpf.process_sample(x)
+
+	def process_vector(self, vec: np.ndarray):
+		return self.gain * self.lpf.process_vector(vec)
 
 
 def _run_unit_tests():
@@ -231,22 +304,27 @@ def main():
 	sample_rate = 48000.
 
 	filter_list = [
+
 		(BasicOnePole, [
 			dict(cutoff=100.0),
 			dict(cutoff=1000.0),
 			dict(cutoff=10000.0)]),
+
 		(BasicOnePoleHighpass, [
 			dict(cutoff=10.0),
 			dict(cutoff=100.0),
 			dict(cutoff=1000.0)]),
+
 		(TrapzOnePole, [
 			dict(cutoff=100.0),
 			dict(cutoff=1000.0),
 			dict(cutoff=10000.0)]),
+
 		(TrapzOnePoleHighpass, [
 			dict(cutoff=10.0),
 			dict(cutoff=100.0),
 			dict(cutoff=1000.0)]),
+
 		(LeakyIntegrator, [
 			dict(cutoff=10.0, f_norm=100.0),
 			dict(cutoff=10.0, f_norm=1000.0),
@@ -256,9 +334,9 @@ def main():
 	]
 
 	freqs = np.array([
-		10., 20., 30., 50.,
-		100., 200., 300., 500., 700., 800., 900., 950.,
-		1000., 1050., 1100., 1200., 1300., 1500., 2000., 3000., 5000.,
+		10., 20., 30., 40., 50., 60., 70., 80., 90.,
+		100., 150., 200., 300., 400., 500., 600., 700., 800., 900.,
+		1000., 1500., 2000., 3000., 4000., 5000., 6000., 7000., 8000., 9000.,
 		10000., 11000., 13000., 15000., 20000.])
 
 	for filter_types, extra_args_list in filter_list:

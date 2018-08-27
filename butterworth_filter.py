@@ -2,7 +2,7 @@
 
 import scipy.signal
 
-from filter_base import FilterBase, CascadedFilters, HigherOrderFilter
+from filter_base import FilterBase, CascadedFilters, IIRFilter
 from biquad_filter import BiquadFilterBase
 
 
@@ -29,7 +29,7 @@ class ButterworthLowpass(FilterBase):
 			])
 		else:
 			b, a = scipy.signal.butter(self.order, wc * 2.0, btype='lowpass', analog=False, output="ba")
-			self.filt = HigherOrderFilter(self.order, a, b)
+			self.filt = IIRFilter(a, b)
 
 	def process_sample(self, x):
 		return self.filt.process_sample(x)
@@ -61,7 +61,7 @@ class ButterworthHighpass(FilterBase):
 			])
 		else:
 			b, a = scipy.signal.butter(self.order, wc * 2.0, btype='highpass', analog=False, output="ba")
-			self.filt = HigherOrderFilter(self.order, a, b)
+			self.filt = IIRFilter(a, b)
 
 	def process_sample(self, x):
 		return self.filt.process_sample(x)
