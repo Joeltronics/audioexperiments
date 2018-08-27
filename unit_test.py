@@ -6,6 +6,11 @@ import sys
 import approx_equal
 
 
+class UnitTestFailure(Exception):
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+
+
 def _get_func_str(func, *args, **kwargs):
 	args_str = ', '.join(
 		[str(arg) for arg in args] +
@@ -24,7 +29,7 @@ def test_is(val1, val2):
 	if val1 is val2:
 		return
 
-	raise AssertionError('Expected %s is %s' % (str(val1), str(val2)))
+	raise UnitTestFailure('Expected %s is %s' % (str(val1), str(val2)))
 
 
 def test_equal(val1, val2):
@@ -37,7 +42,7 @@ def test_equal(val1, val2):
 	if val1 == val2:
 		return
 
-	raise AssertionError('Expected %s == %s' % (str(val1), str(val2)))
+	raise UnitTestFailure('Expected %s == %s' % (str(val1), str(val2)))
 
 
 def test_approx_equal(val1, val2, eps=approx_equal.default_eps, rel=False) -> None:
@@ -52,7 +57,7 @@ def test_approx_equal(val1, val2, eps=approx_equal.default_eps, rel=False) -> No
 	if approx_equal.approx_equal(val1, val2, rel=rel, eps=eps):
 		return
 
-	raise AssertionError('Expected %s ~= %s' % (str(val1, val2)))
+	raise UnitTestFailure('Expected %s ~= %s' % (str(val1, val2)))
 
 
 def expect_return(
@@ -88,7 +93,7 @@ def expect_return(
 		if expected == actual:
 			return
 
-	raise AssertionError('%s, expected %s%s, returned %s' % (
+	raise UnitTestFailure('%s, expected %s%s, returned %s' % (
 		_get_func_str(func, *args, **kwargs),
 		str(expected),
 		' (approximate)' if approx else '',
@@ -120,7 +125,7 @@ def test_threw(func: Callable, *args, **kwargs) -> None:
 	"""
 
 	if not threw(func, *args, **kwargs):
-		raise AssertionError(
+		raise UnitTestFailure(
 			'%s, expected throw' % _get_func_str(func, *args, **kwargs))
 
 
@@ -159,8 +164,12 @@ def run_unit_test(test_func: Callable, verbose=None) -> bool:
 		if verbose:
 			print('Test "%s" Passed' % test_name)
 
-	except AssertionError as ex:
+	except UnitTestFailure as ex:
 		print('Test "%s" failed' % test_name)
+		traceback.print_exc()
+
+	except AssertionError as ex:
+		print('Test "%s" failed on assertion' % test_name)
 		traceback.print_exc()
 
 	except Exception as ex:
