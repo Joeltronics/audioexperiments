@@ -18,11 +18,12 @@ _unit_tests = []
 
 
 class BasicOnePole(FilterBase):
-	def __init__(self, wc, verbose=False, form=FilterForm.D2t):
+	def __init__(self, wc, verbose=False, form=FilterForm.D2t, gain=1.0):
 
 		self.z1 = 0.0
 		self.na1 = 0.0  # -a1
 		self.b0 = 0.0
+		self.gain = gain
 
 		# D2t by default because it can be vectorized with scipy.lfilter
 		self.form = form
@@ -34,9 +35,13 @@ class BasicOnePole(FilterBase):
 	def reset(self):
 		self.z1 = 0.0
 
-	def set_freq(self, wc):
+	def set_freq(self, wc, gain=None):
+
+		if gain is not None:
+			self.gain = gain
+
 		self.na1 = exp(-2.0 * pi * wc)
-		self.b0 = 1.0 - self.na1
+		self.b0 = (1.0 - self.na1) * self.gain
 
 		assert self.na1 > 0.0
 		assert self.b0 > 0.0
@@ -119,6 +124,16 @@ _unit_tests.append(FilterUnitTest(
 		lambda: BasicOnePole(1. / 44.1, form=FilterForm.D2t),
 		freqs_to_test=np.array([10., 100., 1000., 10000.]) / 44100.,
 		expected_freq_response_range_dB=[(-0.1, 0.0), (-3.0, 0.0), (-4.0, -2.0), (-24.0, -18.0)],
+		expected_phase_response_range_degrees=None,  # [(), (), (), None],
+		deterministic=True,
+		linear=True
+	))
+
+_unit_tests.append(FilterUnitTest(
+		"BasicOnePole(1 kHz @ 44.1 kHz, 3 dB gain)",
+		lambda: BasicOnePole(1. / 44.1, gain=utils.from_dB(3.0)),
+		freqs_to_test=np.array([10., 100., 1000., 10000.]) / 44100.,
+		expected_freq_response_range_dB=[(2.9, 3.0), (0.0, 3.0), (-1.0, 1.0), (-21.0, -15.0)],
 		expected_phase_response_range_degrees=None,  # [(), (), (), None],
 		deterministic=True,
 		linear=True
@@ -255,30 +270,28 @@ class LeakyIntegrator(FilterBase):
 		"""
 
 		self.w_norm = w_norm
-		self.lpf = BasicOnePole(wc)
-
-		self._set_gain(wc)
+		gain = self._calc_gain(wc)
+		self.lpf = BasicOnePole(wc, gain=gain)
 
 		if verbose:
-			print('Leaky integrator: wc=%f, a1=%f, b0=%f, gain=%.2f dB' % (wc, -self.lpf.na1, self.lpf.b0, utils.to_dB(self.gain)))
+			print('Leaky integrator: wc=%f, a1=%f, b0=%f, gain=%.2f dB' % (wc, -self.lpf.na1, self.lpf.b0, utils.to_dB(gain)))
 
 	def set_freq(self, wc):
-		self.lpf.set_freq(wc)
-		self._set_gain(wc)
+		self.lpf.set_freq(wc, gain=self._calc_gain(wc))
 
-	def _set_gain(self, wc):
+	def _calc_gain(self, wc):
 		if self.w_norm is None:
-			self.gain = 1.0
+			return 1.0
 		else:
 			# Just use Bode plot approximation (i.e. 20 dB per decade)
 			decades_above_w_norm = log10(self.w_norm / wc)
-			self.gain = utils.from_dB(decades_above_w_norm * 20.0)
+			return utils.from_dB(decades_above_w_norm * 20.0)
 
 	def process_sample(self, x):
-		return self.gain * self.lpf.process_sample(x)
+		return self.lpf.process_sample(x)
 
 	def process_vector(self, vec: np.ndarray):
-		return self.gain * self.lpf.process_vector(vec)
+		return self.lpf.process_vector(vec)
 
 
 def _run_unit_tests():
