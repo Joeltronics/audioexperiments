@@ -40,6 +40,7 @@ class FilterBase(processor.ProcessorBase):
 
 
 class CascadedFilters(FilterBase):
+	# TODO: make this inherit both CascadedProcessors and FilterBase to reduce duplication
 	def __init__(self, filters):
 		self.filters = filters
 	
@@ -59,6 +60,7 @@ class CascadedFilters(FilterBase):
 
 
 class ParallelFilters(FilterBase):
+	# TODO: make this inherit both ParallelProcessors and FilterBase to reduce duplication
 	def __init__(self, filters):
 		self.filters = filters
 
@@ -72,6 +74,16 @@ class ParallelFilters(FilterBase):
 
 	def process_sample(self, x):
 		return sum([f.process_sample(x) for f in self.filters])
+
+	def process_vector(self, vec: np.ndarray) -> np.ndarray:
+		# TODO: compare performance between this and sum()
+		y = None
+		for n, p in enumerate(self.filters):
+			if n == 0:
+				y = p.process_vector(vec)
+			else:
+				y += p.process_vector(vec)
+		return y
 
 
 class IIRFilter(ProcessorBase):

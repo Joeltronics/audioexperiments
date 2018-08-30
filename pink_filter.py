@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+
+from filter_base import IIRFilter
+import numpy as np
+import utils
+from typing import Tuple, List
+from one_pole_filters import BasicOnePole
+from filter_base import ParallelFilters
+
+
+class BasicPinkFilter(IIRFilter):
+	"""Pink noise (1/f) filter
+	Intended for 44.1-48 kHz; will work at higher sample rates but low frequency response will be off
+	"""
+	def __init__(self, wc=None, verbose=False):
+		# https://ccrma.stanford.edu/~jos/sasp/Example_Synthesis_1_F_Noise.html
+		super().__init__(
+			a=[1, -2.494956002, 2.017265875, -0.522189400],
+			b=[0.049922035, -0.095993537, 0.050612699, -0.004408786])
+
+
+class PinkFilter(ParallelFilters):
+	def __init__(self, sample_rate, wc=None, verbose=False):
+		self.sample_rate = sample_rate
+		freqs, gains = self._calc_individual_filters(self.sample_rate)
+		filters = [BasicOnePole(wc=f/sample_rate, gain=g) for f, g in zip(freqs, gains)]
+		super().__init__(filters)
+
+	@staticmethod
+	def _calc_individual_filters(sample_rate, pole_zero_ratio=2.0) -> Tuple[np.ndarray, np.ndarray]:
+		# http://www.firstpr.com.au/dsp/pink-noise/#Filtering
+		# http://www.cooperbaker.com/home/code/pink%20noise/
+
+		freqs = []
+		gains = []
+
+		gain = 1.0
+		hz = sample_rate / (2 * np.pi)
+
+		while hz > 1:
+			freqs.append(hz)
+			gains.append(gain)
+
+			gain *= pole_zero_ratio
+			hz /= (2.0 * pole_zero_ratio)
+
+		freqs = np.array(freqs)
+		gains = np.array(gains) / sum(gains)
+
+		return freqs, gains
+
+
+def _run_unit_test():
+	import numpy as np
+	from filter_unit_test import FilterUnitTest
+	from unit_test import run_unit_tests
+
+	freqs = np.array([50., 100., 200., 400., 800., 1600., 3200., 6400., 12800.]) / 44100.
+	expected_vals = -3.0 * np.arange(len(freqs)) - 4.0
+	expected_dB = [(val - 0.5, val + 0.5) for val in expected_vals]
+
+	tests = [
+		FilterUnitTest(
+			"BasicPinkFilter()",
+			lambda: BasicPinkFilter(),
+			freqs_to_test=freqs,
+			expected_freq_response_range_dB=expected_dB,
+			expected_phase_response_range_degrees=None,
+			deterministic=True,
+			linear=True
+		)
+	]
+	run_unit_tests(tests)
+
+
+def main():
+	from matplotlib import pyplot as plt
+	import numpy as np
+	import argparse
+
+	from plot_filters import plot_filters
+
+	parser = argparse.ArgumentParser()
+	parser.add_argument('-v', '--verbose', action='store_true', help='Verbose unit tests')
+	parser.add_argument('--testonly', action='store_true', help='Run unit tests')
+	args = parser.parse_args()
+
+	_run_unit_test()
+
+	if args.testonly:
+		return
+
+	default_cutoff = 1000.
+	sample_rate = 48000.
+
+	freqs = np.logspace(np.log10(1.0), np.log10(20000.0), 32, base=10)
+
+	plot_filters(BasicPinkFilter, None, freqs, sample_rate, default_cutoff, n_samp=48000, zoom=False, phase=False, group_delay=False)
+	plot_filters(PinkFilter, [dict(sample_rate=48000)], freqs, 48000, default_cutoff, n_samp=48000, zoom=False, phase=False, group_delay=False)
+	plot_filters(PinkFilter, [dict(sample_rate=96000)], freqs, 96000, default_cutoff, n_samp=96000, zoom=False, phase=False, group_delay=False)
+
+	freqs, gains = PinkFilter._calc_individual_filters(sample_rate)
+	args_list = [dict(cutoff=freq, gain=gain) for freq, gain in zip(freqs, gains)]
+	plot_filters(BasicOnePole, args_list, freqs, 48000, default_cutoff, n_samp=48000, zoom=False, phase=False, group_delay=False)
+	plt.title('Individual filters in PinkFilter')
+
+	print('Showing plots')
+	plt.show()
+
+
+if __name__ == "__main__":
+	main()

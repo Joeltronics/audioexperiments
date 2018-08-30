@@ -48,3 +48,25 @@ class CascadedProcessors(ProcessorBase):
 		for p in self.processors:
 			y = p.process_vector(y)
 		return y
+
+
+class ParallelProcessors(ProcessorBase):
+	def __init__(self, processors):
+		self.processors = processors
+
+	def reset(self):
+		for p in self.processors:
+			p.reset()
+
+	def process_sample(self, x):
+		return sum([p.process_sample(x) for p in self.processors])
+
+	def process_vector(self, vec: np.ndarray) -> np.ndarray:
+		# TODO: compare performance between this and sum()
+		y = None
+		for n, p in enumerate(self.processors):
+			if n == 0:
+				y = p.process_vector(vec)
+			else:
+				y += p.process_vector(vec)
+		return y
