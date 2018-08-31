@@ -18,14 +18,13 @@ _unit_tests = []
 
 
 class BasicOnePole(FilterBase):
-	def __init__(self, wc, verbose=False, form=FilterForm.D2t, gain=1.0):
+	def __init__(self, wc, verbose=False, form=FilterForm.D1, gain=1.0):
 
 		self.z1 = 0.0
 		self.na1 = 0.0  # -a1
 		self.b0 = 0.0
 		self.gain = gain
 
-		# D2t by default because it can be vectorized with scipy.lfilter
 		self.form = form
 
 		self.set_freq(wc)
@@ -36,9 +35,7 @@ class BasicOnePole(FilterBase):
 		self.z1 = 0.0
 
 	def set_freq(self, wc, gain=None):
-
-		if wc > 0.5:
-			raise ValueError('Tried to set cutoff frequency above Nyquist!')
+		super().throw_if_invalid_freq(wc)
 
 		if gain is not None:
 			self.gain = gain
@@ -52,8 +49,7 @@ class BasicOnePole(FilterBase):
 	def process_sample(self, x):
 
 		if self.form == FilterForm.D1:
-			self.z1 = (self.b0 * x) + (self.na1 * self.z1)
-			y = self.z1
+			y = self.z1 = (self.b0 * x) + (self.na1 * self.z1)
 
 		elif self.form == FilterForm.D2:
 			self.z1 = x + (self.na1 * self.z1)
@@ -75,16 +71,33 @@ class BasicOnePole(FilterBase):
 
 	def process_vector(self, vec: np.ndarray) -> np.ndarray:
 
-		# TODO: it would be pretty easy to use scipy with other forms
-		# have to convert z between forms - fairly easy when there's only 1 z var, just have to figure out the math
+		if self.form == FilterForm.D1:
 
-		if self.form == FilterForm.D2t:
+			# z1 is state from Direct Form I - Need to convert to transposed DFII and back
+
+			"""
+			DF1:  z1_D1  = y
+			DF2t: z1_D2t = -a1*y
+			
+			Together:
+			z1_D2t = -a1*y = -a1*z1_D1
+			"""
+
+			z1_D2t = self.na1 * self.z1
+
+			y, zf = scipy.signal.lfilter(b=[self.b0], a=[1.0, -self.na1], x=vec, zi=[z1_D2t])
+			assert len(zf) == 1
+			self.z1 = zf[0] / self.na1
+
+		elif self.form == FilterForm.D2t:
 			y, zf = scipy.signal.lfilter(b=[self.b0], a=[1.0, -self.na1], x=vec, zi=[self.z1])
 
 			assert len(zf) == 1
 			self.z1 = zf[0]
 
 		else:
+			# TODO: use scipy with D2 and D1t as well
+
 			y = np.zeros_like(vec)
 			for n, x in enumerate(vec):
 				y[n] = self.process_sample(x)
