@@ -182,9 +182,8 @@ class IIRFilter(ProcessorBase):
 
 
 def main():
-	from matplotlib import pyplot as plt
 	import numpy as np
-	from plot_utils import plot_freq_resp
+	import plot_utils
 
 	default_cutoff = 1000.
 	sample_rate = 48000.
@@ -221,20 +220,26 @@ def main():
 
 	freqs = np.logspace(np.log10(20.0), np.log10(20000.0), 16, base=10)
 
-	for form in FilterForm:
-		plot_freq_resp(
+	fig, axes = plot_utils.plt.subplots(2, 2)
+
+	# flatten list (https://stackoverflow.com/questions/952914/making-a-flat-list-out-of-list-of-lists-in-python)
+	axes = [item for sublist in axes for item in sublist]
+
+	for form, subplot in zip(FilterForm, axes):
+		plot_utils.plot_freq_resp(
 			[AllPoleFilter, AllZeroFilter, PinkFilter],
 			None,
 			dict(form=form),
 			freqs, sample_rate,
-			zoom=False, phase=False, group_delay=False)
+			zoom=False, phase=False, group_delay=False,
+			axes=[subplot])
 
-		plt.title('%s' % form.value)
-		plt.legend(['4 pole', '4 zero (moving average)', 'Pink filter (4 poles + 4 zero)'])
-		plt.ylim([-30., 6.])
+		subplot.set_title('%s' % form.value)
+		subplot.legend(['4 pole', '4 zero (moving average)', 'Pink filter (4 poles + 4 zero)'])
+		subplot.set_ylim([-30., 6.])
 
 	print('Showing plots')
-	plt.show()
+	plot_utils.plt.show()
 
 if __name__ == "__main__":
 	main()

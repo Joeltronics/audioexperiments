@@ -48,7 +48,8 @@ def plot_freq_resp(
 		zoom=False,
 		phase=False,
 		group_delay=False,
-		freq_args: Optional[List[str]]=None):
+		freq_args: Optional[List[str]]=None,
+		axes=None):
 	"""
 
 	:param constructors: one or more ProcessorBase constructors
@@ -61,8 +62,48 @@ def plot_freq_resp(
 	:param phase: add subplot with phase response (in degrees)
 	:param group_delay: add subplot with group delay
 	:param freq_args: args in args_list with these names will be displayed multiplied by sample rate, with units
+	:param axes: axes to plot into - if given, length must match 1 + sum([zoom, phase, group_delay])
 	:return:
 	"""
+
+	#
+	# Handle subplots
+	#
+
+	n_plots = 1 + sum([zoom, phase, group_delay])
+	if axes is None:
+		plt.figure()
+	elif len(axes) != n_plots:
+		raise ValueError('Must give same number of axes as plots!')
+
+	main_subplot = plt.subplot(n_plots, 1, 1) if axes is None else axes[0]
+
+	if not zoom:
+		zoom_subplot = None
+	elif axes is None:
+		zoom_subplot = plt.subplot(n_plots, 1, 2)
+	else:
+		zoom_subplot = axes[2]
+
+	if not phase:
+		phase_subplot = None
+	elif axes is None:
+		phase_subplot = plt.subplot(n_plots, 1, n_plots - 1 if group_delay else n_plots)
+	else:
+		phase_subplot = axes[-2] if group_delay else axes[-1]
+
+	if not group_delay:
+		group_delay_subplot = None
+	elif axes is None:
+		group_delay_subplot = plt.subplot(n_plots, 1, n_plots)
+	else:
+		group_delay_subplot = axes[-1]
+
+	final_subplot = plt.subplot(n_plots, 1, n_plots) if axes is None else axes[-1]
+
+	#
+	# Sanitize args
+	#
 
 	if n_samp is None:
 		n_samp = int(math.ceil(sample_rate / 4.))
@@ -82,13 +123,9 @@ def plot_freq_resp(
 	if isinstance(args_list, dict):
 		args_list = [args_list]
 
-	plt.figure()
-
-	n_plots = 1 + sum([zoom, phase, group_delay])
-	main_subplot = (n_plots, 1, 1)
-	zoom_subplot = (n_plots, 1, 2) if zoom else None
-	group_delay_subplot = (n_plots, 1, n_plots) if group_delay else None
-	phase_subplot = (n_plots, 1, (n_plots - 1 if group_delay else n_plots)) if phase else None
+	#
+	# Process
+	#
 
 	max_amp_seen = 0.0
 	min_amp_seen = 0.0
@@ -133,20 +170,16 @@ def plot_freq_resp(
 			phases_deg = np.rad2deg(phases)
 			phases_deg = (phases_deg + 180.) % 360 - 180.
 
-			plt.subplot(*main_subplot)
-			plt.semilogx(freqs, amps, label=label)
+			main_subplot.semilogx(freqs, amps, label=label)
 
-			if zoom_subplot:
-				plt.subplot(*zoom_subplot)
-				plt.semilogx(freqs, amps, label=label)
+			if zoom_subplot is not None:
+				zoom_subplot.semilogx(freqs, amps, label=label)
 
-			if phase_subplot:
-				plt.subplot(*phase_subplot)
-				plt.semilogx(freqs, phases_deg, label=label)
+			if phase_subplot is not None:
+				phase_subplot.semilogx(freqs, phases_deg, label=label)
 
-			if group_delay_subplot:
-				plt.subplot(*group_delay_subplot)
-				plt.semilogx(freqs, group_delay, label=label)
+			if group_delay_subplot is not None:
+				group_delay_subplot.semilogx(freqs, group_delay, label=label)
 
 	types_list = [type.__name__ for type in constructors]
 	plot_title = ', '.join(types_list) + '; '
@@ -156,42 +189,37 @@ def plot_freq_resp(
 
 	plot_title += 'sample rate ' + utils.to_pretty_str(sample_rate / 1000.0, point_zero=False) + ' kHz'
 
-	plt.subplot(*main_subplot)
-	plt.title(plot_title)
-	plt.ylabel('Amplitude (dB)')
+	main_subplot.set_title(plot_title)
+	main_subplot.set_ylabel('Amplitude (dB)')
 
 	max_amp = math.ceil(max_amp_seen / 6.0) * 6.0
 	min_amp = math.floor(min_amp_seen / 6.0) * 6.0
 
-	plt.yticks(np.arange(min_amp, max_amp + 6, 6))
-	plt.ylim([max(min_amp, -60.0), max(max_amp, 6.0)])
-	plt.grid()
+	main_subplot.set_yticks(np.arange(min_amp, max_amp + 6, 6))
+	main_subplot.set_ylim([max(min_amp, -60.0), max(max_amp, 6.0)])
+	main_subplot.grid()
 	if add_legend:
-		plt.legend()
+		main_subplot.legend()
 
-	if zoom_subplot:
-		plt.subplot(*zoom_subplot)
-		plt.ylabel('Amplitude (dB)')
+	if zoom_subplot is not None:
+		zoom_subplot.set_ylabel('Amplitude (dB)')
 
 		max_amp = math.ceil(max_amp_seen / 3.0) * 3.0
 		min_amp = math.floor(min_amp_seen / 3.0) * 3.0
 
 		yticks = np.arange(min_amp, max_amp + 3, 3)
-		plt.yticks(yticks)
-		plt.ylim([max(min_amp, -6.0), min(max_amp, 6.0)])
-		plt.grid()
+		zoom_subplot.set_yticks(yticks)
+		zoom_subplot.set_ylim([max(min_amp, -6.0), min(max_amp, 6.0)])
+		zoom_subplot.grid()
 
-	if phase_subplot:
-		plt.subplot(*phase_subplot)
-		plt.ylabel('Phase')
-		plt.grid()
-		plt.yticks([-180, -90, 0, 90, 180])
+	if phase_subplot is not None:
+		phase_subplot.set_ylabel('Phase')
+		phase_subplot.grid()
+		phase_subplot.set_yticks([-180, -90, 0, 90, 180])
 
-	if group_delay_subplot:
-		plt.subplot(*group_delay_subplot)
-		plt.grid()
-		plt.ylabel('Group delay')
+	if group_delay_subplot is not None:
+		group_delay_subplot.grid()
+		group_delay_subplot.set_ylabel('Group delay')
 
 	# Whatever the final subplot is
-	plt.subplot(n_plots, 1, n_plots)
-	plt.xlabel('Freq')
+	final_subplot.set_xlabel('Freq')
