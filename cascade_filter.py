@@ -90,6 +90,7 @@ class LinearCascadeFilter(FilterBase):
 				print('LinearCascadeFilter: wc=%f -> g=%f, fb=%f' % (wc, self.g, self.fb))
 
 	def set_freq(self, wc, res=None, Q=None):
+		super().throw_if_invalid_freq(wc)
 
 		self.g = tan(pi * wc)
 

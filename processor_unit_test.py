@@ -10,9 +10,10 @@ import math
 from matplotlib import pyplot as plt
 import signal_generation
 from unit_test import UnitTestFailure
+import unit_test
 
 
-class FilterUnitTest:
+class ProcessorUnitTest:
 	def __init__(
 			self,
 			name,
@@ -25,13 +26,13 @@ class FilterUnitTest:
 			amplitude: float=1.0):
 		"""
 
+		:param name: name for logging
 		:param constructor:
-		:param wc: cutoff frequency
 		:param freqs_to_test: frequencies to test
 		:param expected_freq_response_range_dB: expected response at frequencies, in dB - min and max, or None to leave one side open
-		:param deterministic: True if filter is deterministic (aside from small floating-point and/or quantization error)
-		:param linear: True if filter is linear (aside from small floating-point and/or quantization error)
-		:param amplitude: amplitude to run unit test at (in case filter is nonlinear)
+		:param deterministic: True if processor is deterministic (aside from small floating-point and/or quantization error)
+		:param linear: True if processor is linear (aside from small floating-point and/or quantization error)
+		:param amplitude: amplitude to run unit test at (in case processor is nonlinear)
 		"""
 
 		self.constructor = constructor
@@ -46,8 +47,7 @@ class FilterUnitTest:
 
 	def __call__(self, *args, **kwargs) -> None:
 		"""
-
-		:raises: AssertionError if test failed
+		:raises: UnitTestFailure if test failed
 		"""
 
 		#plot_on_failure = False
@@ -58,7 +58,9 @@ class FilterUnitTest:
 
 		# Test sanity first - if it doesn't work, remaining tests will be invalid
 		self._test_sanity(plot_on_failure=plot_on_failure)
-		self._test_freq_response(plot_on_failure=plot_on_failure)
+
+		if self.freqs_to_test is not None:
+			self._test_freq_response(plot_on_failure=plot_on_failure)
 
 	@staticmethod
 	def _test_resp(actual, expected_range, phase=False) -> bool:
@@ -353,3 +355,48 @@ class FilterUnitTest:
 			else:
 				self._plot_equal_failure(yv, y, 'expected', 'stress test')
 				raise UnitTestFailure('Final stress test failed!')
+
+
+class FilterUnitTest(ProcessorUnitTest):
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+
+	def __call__(self, *args, **kwargs) -> None:
+		"""
+		:raises: UnitTestFailure if test failed
+		"""
+
+		# FilterBase doesn't even have much extra functionality beyond ProcessorBase
+		# The only one worth testing is probably basic set_freq sanity
+		self._test_set_freq_sanity()
+
+		super()(*args, **kwargs)
+
+	def _test_set_freq_sanity(self) -> None:
+
+		filt = self.constructor()
+		try:
+			filt.set_freq(0.25)
+		except NotImplementedError:
+			raise UnitTestFailure('Test failed: %s does not have set_freq implemented' % self.name)
+		except AttributeError:
+			raise UnitTestFailure('Test failed: %s does not have a set_freq function' % self.name)
+
+		# Freqs exactly 0 and 0.5 behavior is undefined. Most will throw, but filter is allowed to accept it too
+
+		# Test freqs close to 0 or 0.5
+		eps = 0.000001
+		for freq in [eps, 0.5 - eps]:
+			filt.set_freq(freq)
+
+		# Test invalid freqs
+		invalid_freqs = [
+			-1.0-eps, -1.0, -1.0+eps,
+			-0.5-eps, -0.5, -0.5+eps,
+			-eps,
+			0.5+eps,
+			1.0-eps, 1.0, 1.0+eps,
+			1.5-eps, 1.5, 1.5+eps,
+		]
+		for freq in invalid_freqs:
+			unit_test.test_threw(filt.set_freq, freq)

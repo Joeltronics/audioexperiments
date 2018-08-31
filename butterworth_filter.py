@@ -19,6 +19,7 @@ class ButterworthLowpass(FilterBase):
 		self._set(wc)
 
 	def _set(self, wc):
+		super().throw_if_invalid_freq(wc)
 		if self.cascade_sos:
 			sos = scipy.signal.butter(self.order, wc * 2.0, btype='lowpass', analog=False, output="sos")
 			self.filt = CascadedFilters([
@@ -51,6 +52,7 @@ class ButterworthHighpass(FilterBase):
 		self._set(wc)
 
 	def _set(self, wc):
+		super().throw_if_invalid_freq(wc)
 		if self.cascade_sos:
 			sos = scipy.signal.butter(self.order, wc * 2.0, btype='highpass', output="sos")
 			self.filt = CascadedFilters([

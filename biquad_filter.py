@@ -3,7 +3,7 @@
 from filter_base import FilterBase, FilterForm
 from typing import Tuple
 from math import pi, sin, cos, sqrt
-from filter_unit_test import FilterUnitTest
+from processor_unit_test import FilterUnitTest
 import numpy as np
 import scipy.signal
 import overdrive
@@ -151,6 +151,7 @@ class BiquadLowpass(BiquadFilterBase):
 		return (a0, a1, a2), (b0, b1, b2)
 
 	def set_freq(self, wc, Q=None):
+		super().throw_if_invalid_freq(wc)
 
 		if Q is not None:
 			self.Q = Q
@@ -252,6 +253,7 @@ class BiquadHighpass(BiquadFilterBase):
 		return (a0, a1, a2), (b0, b1, b2)
 
 	def set_freq(self, wc, Q=None):
+		super().throw_if_invalid_freq(wc)
 
 		if Q is not None:
 			self.Q = Q
@@ -328,6 +330,7 @@ class BiquadBandpass(BiquadFilterBase):
 		return (a0, a1, a2), (b0, b1, b2)
 
 	def set_freq(self, wc, Q=None):
+		super().throw_if_invalid_freq(wc)
 
 		if Q is not None:
 			self.Q = Q

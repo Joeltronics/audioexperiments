@@ -38,6 +38,13 @@ class FilterBase(processor.ProcessorBase):
 			y[n] = self.process_sample(xx)
 		return y
 
+	@staticmethod
+	def throw_if_invalid_freq(wc):
+		if wc >= 0.5:
+			raise ValueError('Tried to set cutoff frequency above Nyquist')
+		elif wc <= 0.0:
+			raise ValueError('Tried to set negative cutoff frequency')
+
 
 class CascadedFilters(FilterBase):
 	# TODO: make this inherit both CascadedProcessors and FilterBase to reduce duplication

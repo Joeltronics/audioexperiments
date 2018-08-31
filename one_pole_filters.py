@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from filter_base import FilterBase, FilterForm
-from filter_unit_test import FilterUnitTest
+from processor_unit_test import FilterUnitTest
 import utils
 
 from math import pi, exp, tan, log10
@@ -212,8 +212,7 @@ class TrapzOnePole(FilterBase):
 		self.s = 0.0
 
 	def set_freq(self, wc):
-		if wc > 0.5:
-			raise ValueError('Tried to set cutoff frequency above Nyquist!')
+		super().throw_if_invalid_freq(wc)
 		self.g = tan(pi * wc)
 		self.m = 1.0 / (self.g + 1.0)
 

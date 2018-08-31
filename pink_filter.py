@@ -53,7 +53,7 @@ class PinkFilter(ParallelProcessors):
 
 def _run_unit_test():
 	import numpy as np
-	from filter_unit_test import FilterUnitTest
+	from processor_unit_test import FilterUnitTest
 	from unit_test import run_unit_tests
 
 	freqs = np.array([50., 100., 200., 400., 800., 1600., 3200., 6400., 12800.]) / 44100.
@@ -96,12 +96,12 @@ def main():
 	freqs = np.logspace(np.log10(1.0), np.log10(20000.0), 32, base=10)
 
 	plot_freq_resp(BasicPinkFilter, None, None, freqs, sample_rate, n_samp=48000)
-	plot_freq_resp(PinkFilter, dict(sample_rate=48000), freqs, 48000, n_samp=48000)
-	plot_freq_resp(PinkFilter, dict(sample_rate=96000), freqs, 96000, n_samp=96000)
+	plot_freq_resp(PinkFilter, None, dict(sample_rate=48000), freqs, 48000, n_samp=48000)
+	plot_freq_resp(PinkFilter, None, dict(sample_rate=96000), freqs, 96000, n_samp=96000)
 
 	freqs, gains = PinkFilter._calc_individual_filters(sample_rate)
 	args_list = [dict(wc=freq/sample_rate, gain=gain) for freq, gain in zip(freqs, gains)]
-	plot_freq_resp(BasicOnePole, args_list, freqs, 48000, n_samp=48000, freq_args=['wc'])
+	plot_freq_resp(BasicOnePole, None, args_list, freqs, 48000, n_samp=48000, freq_args=['wc'])
 	plt.title('Individual filters in PinkFilter')
 
 	print('Showing plots')
