@@ -37,6 +37,9 @@ class BasicOnePole(FilterBase):
 
 	def set_freq(self, wc, gain=None):
 
+		if wc > 0.5:
+			raise ValueError('Tried to set cutoff frequency above Nyquist!')
+
 		if gain is not None:
 			self.gain = gain
 
@@ -196,6 +199,8 @@ class TrapzOnePole(FilterBase):
 		self.s = 0.0
 
 	def set_freq(self, wc):
+		if wc > 0.5:
+			raise ValueError('Tried to set cutoff frequency above Nyquist!')
 		self.g = tan(pi * wc)
 		self.m = 1.0 / (self.g + 1.0)
 
@@ -302,7 +307,7 @@ def _run_unit_tests():
 def main():
 	from matplotlib import pyplot as plt
 	import argparse
-	from plot_utils import plot_filters
+	from plot_utils import plot_freq_resp
 
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-v', '--verbose', action='store_true', help='Verbose unit tests')
@@ -313,37 +318,36 @@ def main():
 		_run_unit_tests()
 		return
 
-	default_cutoff = 1000.
-	sample_rate = 48000.
+	sr = 48000.
 
 	filter_list = [
 
 		(BasicOnePole, [
-			dict(cutoff=100.0),
-			dict(cutoff=1000.0),
-			dict(cutoff=10000.0)]),
+			dict(wc=100.0/sr),
+			dict(wc=1000.0/sr),
+			dict(wc=10000.0/sr)]),
 
 		(BasicOnePoleHighpass, [
-			dict(cutoff=10.0),
-			dict(cutoff=100.0),
-			dict(cutoff=1000.0)]),
+			dict(wc=10.0/sr),
+			dict(wc=100.0/sr),
+			dict(wc=1000.0/sr)]),
 
 		(TrapzOnePole, [
-			dict(cutoff=100.0),
-			dict(cutoff=1000.0),
-			dict(cutoff=10000.0)]),
+			dict(wc=100.0/sr),
+			dict(wc=1000.0/sr),
+			dict(wc=10000.0/sr)]),
 
 		(TrapzOnePoleHighpass, [
-			dict(cutoff=10.0),
-			dict(cutoff=100.0),
-			dict(cutoff=1000.0)]),
+			dict(wc=10.0/sr),
+			dict(wc=100.0/sr),
+			dict(wc=1000.0/sr)]),
 
 		(LeakyIntegrator, [
-			dict(cutoff=10.0, f_norm=100.0),
-			dict(cutoff=10.0, f_norm=1000.0),
-			dict(cutoff=100.0, f_norm=1000.0),
-			dict(cutoff=100.0, f_norm=10000.0),
-			dict(cutoff=1000.0, f_norm=10000.0)]),
+			dict(wc=10.0/sr, w_norm=100.0/sr),
+			dict(wc=10.0/sr, w_norm=1000.0/sr),
+			dict(wc=100.0/sr, w_norm=1000.0/sr),
+			dict(wc=100.0/sr, w_norm=10000.0/sr),
+			dict(wc=1000.0/sr, w_norm=10000.0/sr)]),
 	]
 
 	freqs = np.array([
@@ -353,7 +357,11 @@ def main():
 		10000., 11000., 13000., 15000., 20000.])
 
 	for filter_types, extra_args_list in filter_list:
-		plot_filters(filter_types, extra_args_list, freqs, sample_rate, default_cutoff, zoom=True, phase=True, group_delay=True)
+		plot_freq_resp(
+			filter_types, None, extra_args_list,
+			freqs, sr,
+			freq_args=['wc', 'w_norm'],
+			zoom=True, phase=True, group_delay=True)
 
 	plt.show()
 

@@ -184,15 +184,14 @@ class IIRFilter(ProcessorBase):
 def main():
 	from matplotlib import pyplot as plt
 	import numpy as np
-	from plot_utils import plot_filters
+	from plot_utils import plot_freq_resp
 
 	default_cutoff = 1000.
 	sample_rate = 48000.
 
 	# 4 1-pole filters in a row
 	class AllPoleFilter(IIRFilter):
-		def __init__(self, form, wc=(default_cutoff/sample_rate), verbose=False):
-			print('Constructing all-pole filter, %s' % form.value)
+		def __init__(self, form, wc=(default_cutoff/sample_rate)):
 			a1 = -math.exp(-2.0 * math.pi * wc)
 			b0 = 1.0 + a1
 
@@ -200,46 +199,38 @@ def main():
 			a = [1, 4*a1, 6*(a1**2), 4.0*(a1**3), a1**4]
 
 			super().__init__(a=a, b=b, form=form)
-			#print('a: %s' % str(self.a))
-			#print('b: %s' % str(self.b))
 
 	# Moving average filter
 	# (Actually an FIR filter, but IIRFilter can do it too)
 	class AllZeroFilter(IIRFilter):
-		def __init__(self, form, wc=None, verbose=False):
+		def __init__(self, form):
 			print('Constructing AllZeroFilter, %s' % form.value)
 			super().__init__(
 				a=[1.0, 0.0, 0.0, 0.0, 0.0],
 				b=[0.2, 0.2, 0.2, 0.2, 0.2],
 				form=form)
-			#print('a: %s' % str(self.a))
-			#print('b: %s' % str(self.b))
 
 	# Pink noise filter (1/f)
 	# https://ccrma.stanford.edu/~jos/sasp/Example_Synthesis_1_F_Noise.html
 	class PinkFilter(IIRFilter):
-		def __init__(self, form, wc=None, verbose=False):
-			print('Constructing PinkFilter, %s' % form.value)
+		def __init__(self, form):
 			super().__init__(
 				a=[1, -2.494956002, 2.017265875, -0.522189400],
 				b=[0.049922035, -0.095993537, 0.050612699, -0.004408786],
 				form=form)
-			#print('a: %s' % str(self.a))
-			#print('b: %s' % str(self.b))
 
 	freqs = np.logspace(np.log10(20.0), np.log10(20000.0), 16, base=10)
 
 	for form in FilterForm:
-
-		plot_filters([
-			lambda wc, verbose: AllPoleFilter(form, wc, verbose),
-			lambda wc, verbose: AllZeroFilter(form, wc, verbose),
-			lambda wc, verbose: PinkFilter(form, wc, verbose),
-		], None, freqs, sample_rate, default_cutoff, zoom=False, phase=False, group_delay=False)
+		plot_freq_resp(
+			[AllPoleFilter, AllZeroFilter, PinkFilter],
+			None,
+			dict(form=form),
+			freqs, sample_rate,
+			zoom=False, phase=False, group_delay=False)
 
 		plt.title('%s' % form.value)
 		plt.legend(['4 pole', '4 zero (moving average)', 'Pink filter (4 poles + 4 zero)'])
-
 		plt.ylim([-30., 6.])
 
 	print('Showing plots')

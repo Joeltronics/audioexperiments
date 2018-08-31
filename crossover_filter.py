@@ -45,10 +45,13 @@ def make_crossover_pair(wc, order) -> Tuple[CrossoverLpf, CrossoverHpf]:
 def main():
 	import numpy as np
 	from matplotlib import pyplot as plt
-	from plot_utils import plot_filters
+	from plot_utils import plot_freq_resp
 
 	default_cutoff = 1000.
 	sample_rate = 48000.
+	wc = default_cutoff / sample_rate
+
+	common_args = dict(wc=wc)
 
 	filter_list = [
 		([CrossoverLpf, CrossoverHpf], [
@@ -68,7 +71,11 @@ def main():
 		10000., 11000., 13000., 15000., 20000.])
 
 	for filter_types, extra_args_list in filter_list:
-		plot_filters(filter_types, extra_args_list, freqs, sample_rate, default_cutoff, zoom=True, phase=True, group_delay=True)
+		plot_freq_resp(
+			filter_types, common_args, extra_args_list,
+			freqs, sample_rate,
+			freq_args=['wc'],
+			zoom=True, phase=True, group_delay=True)
 
 	plt.show()
 

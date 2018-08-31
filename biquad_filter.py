@@ -532,12 +532,16 @@ def plot_nonlinear(args):
 
 
 def plot_freq_resp(args):
-	from plot_utils import plot_filters
+	import plot_utils
 
 	one_over_sqrt2 = 1.0 / sqrt(2.0)  # 0.7071
 
 	default_cutoff = 1000.
 	sample_rate = 48000.
+
+	wc = default_cutoff / sample_rate
+
+	common_args = dict(wc=wc)
 
 	filter_list = [
 		(BiquadLowpass, [
@@ -574,7 +578,11 @@ def plot_freq_resp(args):
 		10000., 11000., 13000., 15000., 20000.])
 
 	for filter_types, extra_args_list in filter_list:
-		plot_filters(filter_types, extra_args_list, freqs, sample_rate, default_cutoff, zoom=True, phase=True, group_delay=True)
+		plot_utils.plot_freq_resp(
+			filter_types, common_args, extra_args_list,
+			freqs, sample_rate,
+			freq_args=['wc'],
+			zoom=True, phase=True, group_delay=True)
 
 
 def main():

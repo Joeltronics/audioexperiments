@@ -181,11 +181,15 @@ def determine_res_q():
 def main():
 	import numpy as np
 	from matplotlib import pyplot as plt
-	from plot_utils import plot_filters
+	from plot_utils import plot_freq_resp
 	from math import sqrt
 
 	default_cutoff = 1000.
 	sample_rate = 48000.
+
+	wc = default_cutoff / sample_rate
+
+	common_args = dict(wc=wc)
 
 	# Actually can't test resonance > 1 as this will be unstable and no longer linear
 	filter_list = [
@@ -217,7 +221,11 @@ def main():
 		10000., 11000., 13000., 15000., 20000.])
 
 	for filter_types, extra_args_list, extra_plots in filter_list:
-		plot_filters(filter_types, extra_args_list, freqs, sample_rate, default_cutoff, zoom=extra_plots, phase=extra_plots, group_delay=extra_plots)
+		plot_freq_resp(
+			filter_types, common_args, extra_args_list,
+			freqs, sample_rate,
+			freq_args=['wc'],
+			zoom=extra_plots, phase=extra_plots, group_delay=extra_plots)
 
 	plt.show()
 

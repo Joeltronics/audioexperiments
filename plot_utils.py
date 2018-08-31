@@ -6,6 +6,7 @@ from matplotlib import pyplot as plt
 from typing import Union, Optional, Iterable, List
 
 import utils
+from processor import ProcessorBase
 from filter_base import FilterBase
 from freq_response import get_freq_response
 
@@ -37,21 +38,37 @@ def plot_fft(data, sample_rate, nfft=None, log=True, freq_range=(20., 20000.), l
 	plt.grid()
 
 
-def plot_filters(
-		constructors: Union[FilterBase, Iterable[FilterBase]],
-		args_list: Optional[Iterable[dict]],
+def plot_freq_resp(
+		constructors,
+		common_args: Optional[dict],
+		args_list: Union[None, dict, Iterable[dict]],
 		freqs: Union[np.ndarray, List[Union[float, int]]],
 		sample_rate=48000.,
-		default_cutoff=1000.,
 		n_samp: Optional[int]=None,
-		zoom=True,
-		phase=True,
-		group_delay=False):
+		zoom=False,
+		phase=False,
+		group_delay=False,
+		freq_args: Optional[List[str]]=None):
+	"""
+
+	:param constructors: one or more ProcessorBase constructors
+	:param common_args: args to be passed to all constructors
+	:param args_list: changing args to be passed to constructors
+	:param freqs: frequencies to perform DFT at
+	:param sample_rate:
+	:param n_samp:
+	:param zoom: add subplot zoomed in to unity gain
+	:param phase: add subplot with phase response (in degrees)
+	:param group_delay: add subplot with group delay
+	:param freq_args: args in args_list with these names will be displayed multiplied by sample rate, with units
+	:return:
+	"""
 
 	if n_samp is None:
 		n_samp = int(math.ceil(sample_rate / 4.))
 
-	plt.figure()
+	if common_args is None:
+		common_args = dict()
 
 	if args_list is None:
 		add_legend = False
@@ -59,11 +76,13 @@ def plot_filters(
 	else:
 		add_legend = True
 
-	max_amp_seen = 0.0
-	min_amp_seen = 0.0
-
 	if not hasattr(constructors, "__iter__"):
 		constructors = [constructors]
+
+	if isinstance(args_list, dict):
+		args_list = [args_list]
+
+	plt.figure()
 
 	n_plots = 1 + sum([zoom, phase, group_delay])
 	main_subplot = (n_plots, 1, 1)
@@ -71,28 +90,40 @@ def plot_filters(
 	group_delay_subplot = (n_plots, 1, n_plots) if group_delay else None
 	phase_subplot = (n_plots, 1, (n_plots - 1 if group_delay else n_plots)) if phase else None
 
-	for filter_type in constructors:
+	max_amp_seen = 0.0
+	min_amp_seen = 0.0
 
+	def _format_arg(key, value):
+		if freq_args and key in freq_args:
+			value *= sample_rate
+			if value >= 1000.0:
+				value /= 1000.0
+				units = 'kHz'
+			else:
+				units = 'Hz'
+			val_fmt = utils.to_pretty_str(value, num_decimals=3, point_zero=False)
+			return '%s=%s %s' % (key, val_fmt, units)
+		else:
+			return '%s=%s' % (key, utils.to_pretty_str(value))
+
+	common_args_list = [_format_arg(k, v) for k, v in common_args.items()]
+
+	for constructor in constructors:
 		for extra_args in args_list:
+			extra_args_list = [_format_arg(k, v) for k, v in extra_args.items()]
+			full_label = ', '.join(common_args_list + extra_args_list)
+			label = ', '.join(extra_args_list)
 
-			label = ', '.join(['%s=%s' % (key, utils.to_pretty_str(value)) for key, value in extra_args.items()])
-			if label:
-				print('Processing %s, %s' % (filter_type.__name__, label))
+			if full_label:
+				print('Constructing %s(%s)' % (constructor.__name__, full_label))
 			else:
-				print('Processing %s' % filter_type.__name__)
+				print('Constructing %s' % constructor.__name__)
 
-			if 'cutoff' in extra_args.keys():
-				cutoff = extra_args['cutoff']
-				extra_args.pop('cutoff')
-			else:
-				cutoff = default_cutoff
+			p = constructor(**common_args, **extra_args)
 
-			if 'f_norm' in extra_args.keys():
-				extra_args['w_norm'] = extra_args['f_norm'] / sample_rate
-				extra_args.pop('f_norm')
+			print('Processing %s' % type(p).__name__)
 
-			filt = filter_type(wc=(cutoff / sample_rate), verbose=True, **extra_args)
-			amps, phases, group_delay = get_freq_response(filt, freqs, sample_rate, n_samp=n_samp, group_delay=True)
+			amps, phases, group_delay = get_freq_response(p, freqs, sample_rate, n_samp=n_samp, group_delay=True)
 
 			amps = utils.to_dB(amps)
 
@@ -117,10 +148,16 @@ def plot_filters(
 				plt.subplot(*group_delay_subplot)
 				plt.semilogx(freqs, group_delay, label=label)
 
-	name = ', '.join([type.__name__ for type in constructors])
+	types_list = [type.__name__ for type in constructors]
+	plot_title = ', '.join(types_list) + '; '
+
+	if common_args_list:
+		plot_title += ', '.join(common_args_list) + '; '
+
+	plot_title += 'sample rate ' + utils.to_pretty_str(sample_rate / 1000.0, point_zero=False) + ' kHz'
 
 	plt.subplot(*main_subplot)
-	plt.title('%s, sample rate %.0f' % (name, sample_rate))
+	plt.title(plot_title)
 	plt.ylabel('Amplitude (dB)')
 
 	max_amp = math.ceil(max_amp_seen / 6.0) * 6.0

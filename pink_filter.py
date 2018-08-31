@@ -5,6 +5,7 @@ import numpy as np
 import utils
 from typing import Tuple, List
 from one_pole_filters import BasicOnePole
+from processor import ParallelProcessors
 from filter_base import ParallelFilters
 
 
@@ -19,8 +20,8 @@ class BasicPinkFilter(IIRFilter):
 			b=[0.049922035, -0.095993537, 0.050612699, -0.004408786])
 
 
-class PinkFilter(ParallelFilters):
-	def __init__(self, sample_rate, wc=None, verbose=False):
+class PinkFilter(ParallelProcessors):
+	def __init__(self, sample_rate):
 		self.sample_rate = sample_rate
 		freqs, gains = self._calc_individual_filters(self.sample_rate)
 		filters = [BasicOnePole(wc=f/sample_rate, gain=g) for f, g in zip(freqs, gains)]
@@ -78,7 +79,7 @@ def main():
 	import numpy as np
 	import argparse
 
-	from plot_utils import plot_filters
+	from plot_utils import plot_freq_resp
 
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-v', '--verbose', action='store_true', help='Verbose unit tests')
@@ -90,18 +91,17 @@ def main():
 	if args.testonly:
 		return
 
-	default_cutoff = 1000.
 	sample_rate = 48000.
 
 	freqs = np.logspace(np.log10(1.0), np.log10(20000.0), 32, base=10)
 
-	plot_filters(BasicPinkFilter, None, freqs, sample_rate, default_cutoff, n_samp=48000, zoom=False, phase=False, group_delay=False)
-	plot_filters(PinkFilter, [dict(sample_rate=48000)], freqs, 48000, default_cutoff, n_samp=48000, zoom=False, phase=False, group_delay=False)
-	plot_filters(PinkFilter, [dict(sample_rate=96000)], freqs, 96000, default_cutoff, n_samp=96000, zoom=False, phase=False, group_delay=False)
+	plot_freq_resp(BasicPinkFilter, None, None, freqs, sample_rate, n_samp=48000)
+	plot_freq_resp(PinkFilter, dict(sample_rate=48000), freqs, 48000, n_samp=48000)
+	plot_freq_resp(PinkFilter, dict(sample_rate=96000), freqs, 96000, n_samp=96000)
 
 	freqs, gains = PinkFilter._calc_individual_filters(sample_rate)
-	args_list = [dict(cutoff=freq, gain=gain) for freq, gain in zip(freqs, gains)]
-	plot_filters(BasicOnePole, args_list, freqs, 48000, default_cutoff, n_samp=48000, zoom=False, phase=False, group_delay=False)
+	args_list = [dict(wc=freq/sample_rate, gain=gain) for freq, gain in zip(freqs, gains)]
+	plot_freq_resp(BasicOnePole, args_list, freqs, 48000, n_samp=48000, freq_args=['wc'])
 	plt.title('Individual filters in PinkFilter')
 
 	print('Showing plots')
