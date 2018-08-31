@@ -302,7 +302,7 @@ def _run_unit_tests():
 def main():
 	from matplotlib import pyplot as plt
 	import argparse
-	from plot_filters import plot_filters
+	from plot_utils import plot_filters
 
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-v', '--verbose', action='store_true', help='Verbose unit tests')

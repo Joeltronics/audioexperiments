@@ -181,7 +181,7 @@ def determine_res_q():
 def main():
 	import numpy as np
 	from matplotlib import pyplot as plt
-	from plot_filters import plot_filters
+	from plot_utils import plot_filters
 	from math import sqrt
 
 	default_cutoff = 1000.

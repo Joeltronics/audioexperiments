@@ -532,7 +532,7 @@ def plot_nonlinear(args):
 
 
 def plot_freq_resp(args):
-	from plot_filters import plot_filters
+	from plot_utils import plot_filters
 
 	one_over_sqrt2 = 1.0 / sqrt(2.0)  # 0.7071
 

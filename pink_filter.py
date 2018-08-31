@@ -78,7 +78,7 @@ def main():
 	import numpy as np
 	import argparse
 
-	from plot_filters import plot_filters
+	from plot_utils import plot_filters
 
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-v', '--verbose', action='store_true', help='Verbose unit tests')

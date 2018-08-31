@@ -184,7 +184,7 @@ class IIRFilter(ProcessorBase):
 def main():
 	from matplotlib import pyplot as plt
 	import numpy as np
-	from plot_filters import plot_filters
+	from plot_utils import plot_filters
 
 	default_cutoff = 1000.
 	sample_rate = 48000.

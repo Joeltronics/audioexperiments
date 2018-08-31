@@ -73,7 +73,7 @@ class ButterworthHighpass(FilterBase):
 def main():
 	import numpy as np
 	from matplotlib import pyplot as plt
-	from plot_filters import plot_filters
+	from plot_utils import plot_filters
 
 	default_cutoff = 1000.
 	sample_rate = 48000.
