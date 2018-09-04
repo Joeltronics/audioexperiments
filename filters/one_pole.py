@@ -311,9 +311,9 @@ class LeakyIntegrator(FilterBase):
 		return self.lpf.process_vector(vec)
 
 
-def test(args):
+def test(verbose=False):
 	from unit_test import unit_test
-	unit_test.run_unit_tests(_unit_tests)
+	return unit_test.run_unit_tests(_unit_tests, verbose=verbose)
 
 
 def plot(args):

@@ -283,9 +283,9 @@ def _test_shift_in_place():
 _unit_tests.append(_test_shift_in_place)
 
 
-def test(args):
+def test(verbose=False):
 	from unit_test import unit_test
-	unit_test.run_unit_tests(_unit_tests)
+	return unit_test.run_unit_tests(_unit_tests, verbose=verbose)
 
 
 def main(args):

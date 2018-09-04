@@ -2,7 +2,6 @@
 
 import traceback
 from typing import Iterable, Callable
-import sys
 from utils import approx_equal
 
 
@@ -137,9 +136,6 @@ def run_unit_test(test_func: Callable, verbose=None) -> bool:
 	:return: True on success, False if an exception was thrown
 	"""
 
-	if verbose is None:
-		verbose = '-v' in sys.argv or '--verbose' in sys.argv
-
 	if hasattr(test_func, "name"):
 		test_name = test_func.name
 	elif hasattr(test_func, "__name__"):
@@ -186,14 +182,17 @@ def run_unit_tests(test_funcs: Iterable[Callable], verbose=None) -> bool:
 	"""Run unit tests - test fails if exception (e.g. AssertionError) is thrown
 
 	:param test_funcs: Iterable of functions to be called (no args)
-	:param verbose: if True, print details of ever test even on success
+	:param verbose: if True, print details of every test, even on success
 	:return: True if all tests passed
 	"""
 
 	num_failures = 0
 	num_tests = len(test_funcs)
 
-	print('Running %i unit tests...' % num_tests)
+	if num_tests == 0:
+		raise ValueError('No tests given!')
+
+	print('Running %i unit test%s...' % (num_tests, 's' if num_tests > 1 else ''))
 
 	for test_func in test_funcs:
 		if not run_unit_test(test_func, verbose=verbose):
@@ -203,7 +202,11 @@ def run_unit_tests(test_funcs: Iterable[Callable], verbose=None) -> bool:
 		print('%i/%i test failures' % (num_failures, num_tests))
 		return False
 	else:
-		print('All %i tests passed!' % num_tests)
+		if num_tests > 1:
+			print('All %i tests passed!' % num_tests)
+		else:
+			print('Test passed!')
+
 		return True
 
 

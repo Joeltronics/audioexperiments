@@ -11,6 +11,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('module')
 parser.add_argument('-t', '--test', action='store_true', help="run module's unit tests")
 parser.add_argument('-p', '--plot', action='store_true', help="run module's plot() function")
+parser.add_argument('-v', '--verbose', action='store_true', help="verbose unit tests")
 
 args, remaining_args = parser.parse_known_args()
 
@@ -18,7 +19,7 @@ mod = importlib.import_module(args.module)
 
 if args.test:
 	if hasattr(mod, 'test'):
-		mod.test(remaining_args)
+		mod.test(verbose=args.verbose)
 	else:
 		print("Error: module '%s' has no test()" % args.module)
 

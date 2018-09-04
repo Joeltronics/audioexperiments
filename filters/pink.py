@@ -51,7 +51,7 @@ class PinkFilter(ParallelProcessors):
 		return freqs, gains
 
 
-def test(args):
+def test(verbose=False):
 	import numpy as np
 	from unit_test.processor_unit_test import ProcessorUnitTest
 	from unit_test.unit_test import run_unit_tests
@@ -71,7 +71,7 @@ def test(args):
 			linear=True
 		)
 	]
-	run_unit_tests(tests)
+	return run_unit_tests(tests, verbose=verbose)
 
 
 def plot(args):
