@@ -37,7 +37,10 @@ def gen_phase(freq_norm: Union[float, np.ndarray], n_samp: Optional[int]=None, s
 	"""
 
 	if not allow_aliasing and (np.amin(freq_norm) <= 0.0 or np.amax(freq_norm) >= 0.5):
-		raise ValueError("freq out of range: %f" % freq_norm)
+		if np.isscalar(freq_norm):
+			raise ValueError("freq out of range: %f" % freq_norm)
+		else:
+			raise ValueError("freq out of range: %f-%f" % (np.amin(freq_norm), np.amax(freq_norm)))
 
 	if np.isscalar(freq_norm):
 		if n_samp is None:

@@ -3,13 +3,18 @@
 import numpy as np
 import math
 from matplotlib import pyplot as plt
-from typing import Union, Optional, Iterable, List
+from typing import Union, Optional, Iterable, List, Callable
 
 from utils import utils
 from analysis.freq_response import get_freq_response
 
 
-def plot_fft(data, sample_rate, nfft=None, log=True, freq_range=(20., 20000.), label=None):
+def plot_fft(data, sample_rate, nfft=None, log=True, dB=True, window: Union[bool, Callable]=True, freq_range=(20., 20000.), label=None):
+
+	if window is True:
+		data = data * np.hamming(len(data))
+	elif window:
+		data = data * window(len(data))
 
 	if nfft is not None:
 		data_fft = np.fft.fft(data, n=nfft)
@@ -19,8 +24,10 @@ def plot_fft(data, sample_rate, nfft=None, log=True, freq_range=(20., 20000.), l
 	fft_len = len(data_fft)
 	data_len = fft_len // 2
 	data_fft = data_fft[0:data_len]
+	data_fft = np.abs(data_fft)
 
-	data_fft = utils.to_dB(np.abs(data_fft))
+	if dB:
+		data_fft = utils.to_dB(data_fft)
 
 	f = np.linspace(0, sample_rate/2.0, num=data_len, endpoint=False)
 	

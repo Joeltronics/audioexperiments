@@ -427,7 +427,7 @@ class OverdrivenInputBiquad(BiquadLowpass):
 
 
 def plot_nonlinear(out_file_path=None):
-	from generation import signal_generation
+	from generation import signal_generation, additive
 	from matplotlib import pyplot as plt
 	from utils import utils
 
@@ -474,9 +474,9 @@ def plot_nonlinear(out_file_path=None):
 	]
 
 	saws = \
-		signal_generation.gen_saw(freq1 / sample_rate, n_samp) + \
-		signal_generation.gen_saw(freq2 / sample_rate, n_samp) + \
-		signal_generation.gen_saw(freq3 / sample_rate, n_samp)
+		additive.gen_saw(freq1 / sample_rate, n_samp) + \
+		additive.gen_saw(freq2 / sample_rate, n_samp) + \
+		additive.gen_saw(freq3 / sample_rate, n_samp)
 
 	saws /= 3.0
 
