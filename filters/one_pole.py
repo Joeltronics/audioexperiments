@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
-from filter_base import FilterBase, FilterForm
-from processor_unit_test import FilterUnitTest
-import utils
+from .filter_base import FilterBase, FilterForm
+from unit_test.processor_unit_test import FilterUnitTest
+from utils import utils
 
 from math import pi, exp, tan, log10
 import numpy as np
@@ -311,24 +311,14 @@ class LeakyIntegrator(FilterBase):
 		return self.lpf.process_vector(vec)
 
 
-def _run_unit_tests():
-	import unit_test
+def test(args):
+	from unit_test import unit_test
 	unit_test.run_unit_tests(_unit_tests)
 
 
-def main():
+def plot(args):
 	from matplotlib import pyplot as plt
-	import argparse
-	from plot_utils import plot_freq_resp
-
-	parser = argparse.ArgumentParser()
-	parser.add_argument('-v', '--verbose', action='store_true', help='Verbose unit tests')
-	parser.add_argument('--test', action='store_true', help='Run unit tests')
-	args = parser.parse_args()
-
-	if args.test:
-		_run_unit_tests()
-		return
+	from utils.plot_utils import plot_freq_resp
 
 	sr = 48000.
 
@@ -378,7 +368,5 @@ def main():
 	plt.show()
 
 
-if __name__ == "__main__":
-	main()
-
-
+def main(args):
+	plot(args)

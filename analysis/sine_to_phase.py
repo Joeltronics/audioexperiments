@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 
 from processor import ProcessorBase
-import utils
+from utils import utils
 
 from math import pi
 
 import numpy as np
 import scipy.stats
-import math
 
 
 class SineToPhase(ProcessorBase):
@@ -64,9 +63,9 @@ def phase_diff(input, output, normalize=True, radians=False, degrees=False):
 		return diff
 
 
-if __name__ == "__main__":
+def plot(args):
 	from matplotlib import pyplot as plt
-	import signal_generation
+	from generation import signal_generation
 
 	freq = 440
 	sample_rate = 48000
@@ -109,3 +108,7 @@ if __name__ == "__main__":
 	plt.xlabel('Time (seconds)')
 
 	plt.show()
+
+
+def main(args):
+	plot(args)

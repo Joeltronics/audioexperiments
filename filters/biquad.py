@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 
-from filter_base import FilterBase, FilterForm
+from .filter_base import FilterBase, FilterForm
 from typing import Tuple
 from math import pi, sin, cos, sqrt
-from processor_unit_test import FilterUnitTest
+from unit_test.processor_unit_test import FilterUnitTest
 import numpy as np
 import scipy.signal
-import overdrive
-import utils
-
+from overdrive import overdrive
+from utils import approx_equal, wavfile
 
 _unit_tests = []
 
@@ -47,7 +46,7 @@ class BiquadFilterBase(FilterBase):
 		self.a = np.array(a, dtype=self.dtype) / a[0]
 		self.b = np.array(b, dtype=self.dtype) / a[0]
 
-		assert utils.approx_equal_scalar(self.a[0], 1.0)
+		assert approx_equal.approx_equal_scalar(self.a[0], 1.0)
 
 	def process_sample(self, x):
 
@@ -427,18 +426,10 @@ class OverdrivenInputBiquad(BiquadLowpass):
 		return super().process_vector(overdrive.tanh(vec))
 
 
-def _run_unit_tests():
-	import unit_test
-	unit_test.run_unit_tests(_unit_tests)
-
-
-def plot_nonlinear(args):
-	import signal_generation
+def plot_nonlinear(out_file_path=None):
+	from generation import signal_generation
 	from matplotlib import pyplot as plt
-	import wavfile
-	import argparse
-	import utils
-	from utils import to_pretty_str
+	from utils import utils
 
 	freq = 220.
 
@@ -491,7 +482,7 @@ def plot_nonlinear(args):
 
 	t = signal_generation.sample_time_index(n_samp, sample_rate)
 
-	data_out = np.copy(saws) if args.outfile else None
+	data_out = np.copy(saws) if out_file_path else None
 
 	for filter_list in filters:
 		plt.figure()
@@ -500,7 +491,7 @@ def plot_nonlinear(args):
 		for constructor, filt_args in filter_list:
 
 			args_list = ', '.join([
-				'%s=%s' % (k, to_pretty_str(v, num_decimals=3))
+				'%s=%s' % (k, utils.to_pretty_str(v, num_decimals=3))
 				for k, v in filt_args.items()])
 
 			name = '%s(%s)' % (constructor.__name__, args_list)
@@ -528,14 +519,14 @@ def plot_nonlinear(args):
 		plt.legend()
 		plt.grid()
 
-	if args.outfile:
-		print('Saving %s' % args.outfile)
+	if out_file_path:
+		print('Saving %s' % out_file_path)
 		data_out = utils.normalize(data_out)
-		wavfile.export_wavfile(data_out, sample_rate, args.outfile, allow_overwrite=True)
+		wavfile.export_wavfile(data_out, sample_rate, out_file_path, allow_overwrite=True)
 
 
-def plot_freq_resp(args):
-	import plot_utils
+def plot_freq_resp():
+	from utils import plot_utils
 
 	one_over_sqrt2 = 1.0 / sqrt(2.0)  # 0.7071
 
@@ -588,26 +579,26 @@ def plot_freq_resp(args):
 			zoom=True, phase=True, group_delay=True)
 
 
-def main():
+def plot(args):
+	plot_freq_resp()
+	plot_nonlinear()
+
+
+def test(args):
+	from unit_test import unit_test
+	unit_test.run_unit_tests(_unit_tests)
+
+
+def main(args):
 	from matplotlib import pyplot as plt
 	import argparse
 
 	parser = argparse.ArgumentParser()
 	parser.add_argument('outfile', nargs='?')
-	parser.add_argument('-v', '--verbose', action='store_true', help='Verbose unit tests')
-	parser.add_argument('--test', action='store_true', help='Run unit tests')
-	args = parser.parse_args()
+	args = parser.parse_args(args)
 
-	if args.test:
-		_run_unit_tests()
-		return
-
-	plot_freq_resp(args)
-	plot_nonlinear(args)
+	plot_freq_resp()
+	plot_nonlinear(args.outfile)
 
 	print('Showing plots')
 	plt.show()
-
-
-if __name__ == "__main__":
-	main()

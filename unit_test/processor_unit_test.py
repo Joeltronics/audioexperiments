@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 
-import utils
-import freq_response
-from enum import Enum, unique
+from utils import utils
+from analysis import freq_response
+from utils.approx_equal import *
+
+from .unit_test import UnitTestFailure
+from . import unit_test
+
+from generation import signal_generation
+
 from typing import Callable, Iterable, Tuple, Optional
-from approx_equal import *
 import numpy as np
 import math
 from matplotlib import pyplot as plt
-import signal_generation
-from unit_test import UnitTestFailure
-import unit_test
 
 
 class ProcessorUnitTest:
@@ -370,7 +372,7 @@ class FilterUnitTest(ProcessorUnitTest):
 		# The only one worth testing is probably basic set_freq sanity
 		self._test_set_freq_sanity()
 
-		super()(*args, **kwargs)
+		super().__call__(*args, **kwargs)
 
 	def _test_set_freq_sanity(self) -> None:
 

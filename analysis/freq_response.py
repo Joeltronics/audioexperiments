@@ -2,11 +2,11 @@
 
 import numpy as np
 import math
-import utils
 
+from utils import utils
 from processor import ProcessorBase
-from typing import Union, Tuple, Any, Iterable
-import signal_generation
+from typing import Iterable
+from generation import signal_generation
 
 
 def _single_freq_dft(

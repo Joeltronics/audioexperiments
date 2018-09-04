@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from filter_base import FilterBase
+from .filter_base import FilterBase
 from math import pi, tan
 from typing import Optional
 
@@ -161,7 +161,7 @@ class LinearCascadeFilter(FilterBase):
 def determine_res_q():
 	# Empirically determine res-Q mapping
 
-	import freq_response
+	from utils import freq_response
 
 	wc = 1000. / 48000.
 
@@ -179,10 +179,10 @@ def determine_res_q():
 	print('=' * char_width)
 
 
-def main():
+def plot(args):
 	import numpy as np
 	from matplotlib import pyplot as plt
-	from plot_utils import plot_freq_resp
+	from utils.plot_utils import plot_freq_resp
 	from math import sqrt
 
 	default_cutoff = 1000.
@@ -231,5 +231,5 @@ def main():
 	plt.show()
 
 
-if __name__ == "__main__":
-	main()
+def main(args):
+	plot(args)

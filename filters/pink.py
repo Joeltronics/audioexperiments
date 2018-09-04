@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
-from filter_base import IIRFilter
+from .filter_base import IIRFilter
 import numpy as np
-import utils
+from utils import utils
 from typing import Tuple, List
-from one_pole_filters import BasicOnePole
+from .one_pole import BasicOnePole
 from processor import ParallelProcessors
-from filter_base import ParallelFilters
+from .filter_base import ParallelFilters
 
 
 class BasicPinkFilter(IIRFilter):
@@ -51,17 +51,17 @@ class PinkFilter(ParallelProcessors):
 		return freqs, gains
 
 
-def _run_unit_test():
+def test(args):
 	import numpy as np
-	from processor_unit_test import FilterUnitTest
-	from unit_test import run_unit_tests
+	from unit_test.processor_unit_test import ProcessorUnitTest
+	from unit_test.unit_test import run_unit_tests
 
 	freqs = np.array([50., 100., 200., 400., 800., 1600., 3200., 6400., 12800.]) / 44100.
 	expected_vals = -3.0 * np.arange(len(freqs)) - 4.0
 	expected_dB = [(val - 0.5, val + 0.5) for val in expected_vals]
 
 	tests = [
-		FilterUnitTest(
+		ProcessorUnitTest(
 			"BasicPinkFilter()",
 			lambda: BasicPinkFilter(),
 			freqs_to_test=freqs,
@@ -74,22 +74,11 @@ def _run_unit_test():
 	run_unit_tests(tests)
 
 
-def main():
+def plot(args):
 	from matplotlib import pyplot as plt
 	import numpy as np
-	import argparse
 
-	from plot_utils import plot_freq_resp
-
-	parser = argparse.ArgumentParser()
-	parser.add_argument('-v', '--verbose', action='store_true', help='Verbose unit tests')
-	parser.add_argument('--testonly', action='store_true', help='Run unit tests')
-	args = parser.parse_args()
-
-	_run_unit_test()
-
-	if args.testonly:
-		return
+	from utils.plot_utils import plot_freq_resp
 
 	sample_rate = 48000.
 
@@ -108,5 +97,6 @@ def main():
 	plt.show()
 
 
-if __name__ == "__main__":
-	main()
+def main(args):
+	test(args)
+	plot(args)

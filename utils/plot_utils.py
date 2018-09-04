@@ -5,10 +5,8 @@ import math
 from matplotlib import pyplot as plt
 from typing import Union, Optional, Iterable, List
 
-import utils
-from processor import ProcessorBase
-from filter_base import FilterBase
-from freq_response import get_freq_response
+from utils import utils
+from analysis.freq_response import get_freq_response
 
 
 def plot_fft(data, sample_rate, nfft=None, log=True, freq_range=(20., 20000.), label=None):

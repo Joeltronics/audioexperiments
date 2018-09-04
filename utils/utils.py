@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
 
-import numpy as np
-import math
-
-from processor import ProcessorBase
-from typing import Union, Tuple, Any, List
-import signal_generation
-from approx_equal import *
+from typing import Tuple, Any, List
+from generation import signal_generation
+from .approx_equal import *
 
 _unit_tests = []
 
@@ -208,7 +204,6 @@ def rms(vec, dB=False):
 
 
 def _test_rms():
-	import signal_generation
 	for val in [-2.0, -1.0, 0.0, 0.0001, 1.0]:
 		assert approx_equal(rms(val), abs(val))
 	n_samp = 2048
@@ -230,7 +225,6 @@ def normalize(vec):
 
 
 def _test_normalize():
-	import signal_generation
 	n_samp = 2048
 	freq = 1.0 / n_samp
 	sig = signal_generation.gen_sine(freq, n_samp)
@@ -265,6 +259,8 @@ def shift_in_place(x: Union[np.ndarray, List], input_val=0.0, dir=1):
 
 
 def _test_shift_in_place():
+	from unit_test import unit_test
+
 	x = np.array([1, 2, 3, 4, 5], dtype=np.float)
 
 	y = np.copy(x)
@@ -287,6 +283,10 @@ def _test_shift_in_place():
 _unit_tests.append(_test_shift_in_place)
 
 
-if __name__ == "__main__":
-	import unit_test
+def test(args):
+	from unit_test import unit_test
 	unit_test.run_unit_tests(_unit_tests)
+
+
+def main(args):
+	test(args)

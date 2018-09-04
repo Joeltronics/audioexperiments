@@ -2,8 +2,8 @@
 
 import scipy.signal
 
-from filter_base import FilterBase, CascadedFilters, IIRFilter
-from biquad_filter import BiquadFilterBase
+from .filter_base import FilterBase, CascadedFilters, IIRFilter
+from .biquad import BiquadFilterBase
 
 
 class ButterworthLowpass(FilterBase):
@@ -72,10 +72,10 @@ class ButterworthHighpass(FilterBase):
 		return self.filt.process_vector(v)
 
 
-def main():
+def plot(args):
 	import numpy as np
 	from matplotlib import pyplot as plt
-	from plot_utils import plot_freq_resp
+	from utils.plot_utils import plot_freq_resp
 
 	default_cutoff = 1000.
 	sample_rate = 48000.
@@ -119,5 +119,5 @@ def main():
 	plt.show()
 
 
-if __name__ == "__main__":
-	main()
+def main(args):
+	plot(args)

@@ -4,7 +4,7 @@ from enum import Enum, unique
 import scipy.signal
 
 import processor
-from utils import *
+from utils.utils import *
 
 
 @unique
@@ -93,7 +93,7 @@ class ParallelFilters(FilterBase):
 		return y
 
 
-class IIRFilter(ProcessorBase):
+class IIRFilter(processor.ProcessorBase):
 	def __init__(self, a, b, verbose=False, form=FilterForm.D2t):
 
 		# Internal data type
@@ -188,9 +188,9 @@ class IIRFilter(ProcessorBase):
 		return y
 
 
-def main():
+def plot(args):
 	import numpy as np
-	import plot_utils
+	from utils import plot_utils
 
 	default_cutoff = 1000.
 	sample_rate = 48000.
@@ -248,5 +248,6 @@ def main():
 	print('Showing plots')
 	plot_utils.plt.show()
 
-if __name__ == "__main__":
-	main()
+
+def main(args):
+	plot(args)

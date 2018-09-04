@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
-import filter_base
-import butterworth_filter
-import one_pole_filters
+from . import filter_base
+from . import butterworth
+from . import one_pole
 from typing import Tuple
 
 
@@ -14,9 +14,9 @@ class CrossoverLpf(filter_base.CascadedFilters):
 			raise ValueError('Order must be even')
 		order //= 2
 		if order == 1:
-			super().__init__([one_pole_filters.BasicOnePole(wc, verbose=verbose) for _ in range(2)])
+			super().__init__([one_pole.BasicOnePole(wc, verbose=verbose) for _ in range(2)])
 		else:
-			super().__init__([butterworth_filter.ButterworthLowpass(wc, order, verbose=verbose) for _ in range(2)])
+			super().__init__([butterworth.ButterworthLowpass(wc, order, verbose=verbose) for _ in range(2)])
 
 
 class CrossoverHpf(filter_base.CascadedFilters):
@@ -27,9 +27,9 @@ class CrossoverHpf(filter_base.CascadedFilters):
 			raise ValueError('Order must be even')
 		order //= 2
 		if order == 1:
-			super().__init__([one_pole_filters.BasicOnePoleHighpass(wc, verbose=verbose) for _ in range(2)])
+			super().__init__([one_pole.BasicOnePoleHighpass(wc, verbose=verbose) for _ in range(2)])
 		else:
-			super().__init__([butterworth_filter.ButterworthHighpass(wc, order, verbose=verbose) for _ in range(2)])
+			super().__init__([butterworth.ButterworthHighpass(wc, order, verbose=verbose) for _ in range(2)])
 
 
 class _ParallelCrossover(filter_base.ParallelFilters):
@@ -42,10 +42,10 @@ def make_crossover_pair(wc, order) -> Tuple[CrossoverLpf, CrossoverHpf]:
 	return CrossoverLpf(wc, order), CrossoverHpf(wc, order)
 
 
-def main():
+def plot(args):
 	import numpy as np
 	from matplotlib import pyplot as plt
-	from plot_utils import plot_freq_resp
+	from utils.plot_utils import plot_freq_resp
 
 	default_cutoff = 1000.
 	sample_rate = 48000.
@@ -80,5 +80,5 @@ def main():
 	plt.show()
 
 
-if __name__ == "__main__":
-	main()
+def main(args):
+	plot(args)

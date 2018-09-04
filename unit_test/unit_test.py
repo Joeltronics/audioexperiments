@@ -3,7 +3,7 @@
 import traceback
 from typing import Iterable, Callable
 import sys
-import approx_equal
+from utils import approx_equal
 
 
 class UnitTestFailure(Exception):

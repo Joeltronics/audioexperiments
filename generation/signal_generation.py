@@ -116,7 +116,7 @@ def gen_freq_sweep_sine(start_freq_norm: float, end_freq_norm: float, n_samp: in
 	return phase_to_sine(ph)
 
 
-if __name__ == "__main__":
+def plot(args):
 	from matplotlib import pyplot as plt
 	import math
 
@@ -197,3 +197,7 @@ if __name__ == "__main__":
 	plt.xlabel('Time (seconds)')
 
 	plt.show()
+
+
+def main(args):
+	plot(args)

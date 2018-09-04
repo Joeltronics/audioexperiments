@@ -111,6 +111,7 @@ _unit_tests = []
 
 
 def _test_scalar():
+	from unit_test import unit_test
 
 	def test(*args, rel=False, eps=default_eps):
 		eq1 = approx_equal_scalar(*args, rel=rel, eps=eps)
@@ -147,7 +148,8 @@ _unit_tests.append(_test_scalar)
 
 
 def _test_vector():
-	import signal_generation
+	from unit_test import unit_test
+	from generation import signal_generation
 
 	def test_vector(*args, rel=False, eps=default_eps):
 		eq1 = approx_equal_vector(*args, rel=rel, eps=eps)
@@ -211,6 +213,10 @@ def _test_misc():
 _unit_tests.append(_test_misc)
 
 
-if __name__ == "__main__":
-	import unit_test
+def test(args):
+	from unit_test import unit_test
 	unit_test.run_unit_tests(_unit_tests)
+
+
+def main(args):
+	test(args)
