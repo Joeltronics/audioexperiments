@@ -170,11 +170,11 @@ def _test_wrap05():
 _unit_tests.append(_test_wrap05)
 
 
-def to_dB(val_lin: Union[float, int]) -> float:
+def to_dB(val_lin):
 	return 20.0*np.log10(val_lin)
 
 
-def from_dB(val_dB: Union[float, int]) -> float:
+def from_dB(val_dB):
 	return np.power(10.0, val_dB / 20.0)
 
 

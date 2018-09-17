@@ -3,13 +3,35 @@
 import numpy as np
 import math
 from matplotlib import pyplot as plt
-from typing import Union, Optional, Iterable, List, Callable
+from typing import Union, Optional, Iterable, List, Callable, Tuple
 
 from utils import utils
 from analysis.freq_response import get_freq_response
 
 
-def plot_fft(data, sample_rate, nfft=None, log=True, dB=True, window: Union[bool, Callable]=True, freq_range=(20., 20000.), label=None):
+def plot_fft(
+		data,
+		sample_rate,
+		fmt=None,
+		nfft: Optional[int]=None,
+		log=True,
+		dB=True,
+		window: Union[bool, Callable]=True,
+		label=None,
+		noise_floor=0.0):
+	"""
+
+	:param data: time-domain data
+	:param sample_rate: sample rate of data, in Hz
+	:param fmt: pyplot format
+	:param nfft:
+	:param log: plot as log-frequency
+	:param dB: display FFT in dB
+	:param window:
+	:param label: pyplot label
+	:param noise_floor: add a constant amount to FFT result, so that zero-values don't screw up dB conversion
+	:return:
+	"""
 
 	if window is True:
 		data = data * np.hamming(len(data))
@@ -21,10 +43,14 @@ def plot_fft(data, sample_rate, nfft=None, log=True, dB=True, window: Union[bool
 	else:
 		data_fft = np.fft.fft(data)
 
+	if fmt is None:
+		fmt = '-'
+
 	fft_len = len(data_fft)
 	data_len = fft_len // 2
 	data_fft = data_fft[0:data_len]
 	data_fft = np.abs(data_fft)
+	data_fft += noise_floor
 
 	if dB:
 		data_fft = utils.to_dB(data_fft)
@@ -35,12 +61,19 @@ def plot_fft(data, sample_rate, nfft=None, log=True, dB=True, window: Union[bool
 	f += (f[1] - f[0]) / 2.0
 
 	if log:
-		plt.semilogx(f, data_fft, label=label)
+		plt.semilogx(f, data_fft, fmt, label=label)
 	else:
-		plt.plot(f, data_fft, label=label)
+		plt.plot(f, data_fft, fmt, label=label)
 
-	plt.xlim(freq_range)
-	plt.grid()
+
+def plot_spectrogram(data, sample_rate, nfft=256, log=False):
+
+	plt.specgram(data, NFFT=nfft, Fs=sample_rate)
+
+	if log:
+		ax = plt.gca()
+		ax.set_yscale('log')
+		plt.ylim([20.0, 0.5*sample_rate])
 
 
 def plot_freq_resp(
