@@ -105,6 +105,14 @@ def gen_square(freq_norm: float, n_samp: int) -> np.ndarray:
 	return ((p >= 0.5) * 2 - 1).astype(float)
 
 
+def gen_noise(n_samp: int, gaussian=False, amp=1.0) -> np.ndarray:
+	"""Generate white or Gaussian noise"""
+	if gaussian:
+		return np.random.randn(n_samp)
+	else:
+		return np.random.rand(n_samp)
+
+
 def gen_freq_sweep_phase(start_freq_norm: float, end_freq_norm: float, n_samp: int, log=True, start_phase=0.0) -> np.ndarray:
 	if log:
 		f = np.logspace(np.log2(start_freq_norm), np.log2(end_freq_norm), n_samp, base=2)
