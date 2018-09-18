@@ -161,6 +161,55 @@ class ButterworthUpsampler(FilterUpsampler):
 		super().__init__(ratio, ButterworthLowpass(wc, order=order), zero_order_hold=zero_order_hold)
 
 
+class PolyphaseIirAllpassUpsampler(UpsamplerBase):
+	"""
+	Upsampler based on polyphase first-order IIR allpass interpolators
+	Performance is not great (filters are only first-order, and not really meant for upsampling)
+	But makes for a simple polyphase experiment
+	"""
+
+	class _IirAllpassInterpolator:
+		# https://ccrma.stanford.edu/~jos/pasp/First_Order_Allpass_Interpolation.html
+		def __init__(self, interp_coeff):
+			self.eta = interp_coeff
+			self.x1 = self.y1 = 0.0
+
+		def reset(self):
+			self.x1 = self.y1 = 0.0
+
+		def process_sample(self, x: float) -> float:
+			y = self.eta * (x - self.y1) + self.x1
+			self.x1 = x
+			self.y1 = y
+			return y
+
+	def __init__(self, ratio: int):
+		if ratio <= 1:
+			raise ValueError('Upsampler ratio must be > 1')
+
+		self.ratio = ratio
+		interp_vals = np.linspace(0.0, 1.0, self.ratio, endpoint=False)[1:]
+		self.interpolators = [self._IirAllpassInterpolator(val) for val in interp_vals]
+
+	def reset(self) -> None:
+		for i in self.interpolators:
+			i.reset()
+
+	def process_sample(self, x: float) -> List[float]:
+		return [i.process_sample(x) for i in self.interpolators] + [x]
+
+	def process_vector(self, vec: np.ndarray) -> np.ndarray:
+		n_samp_out = len(vec) * self.ratio
+		y = np.zeros(n_samp_out)
+
+		for n, x in enumerate(vec):
+			start = self.ratio * n
+			end = start + self.ratio
+			y[start:end] = self.process_sample(x)
+
+		return y
+
+
 class NaiveDownsampler(DownsamplerBase):
 	"""
 	Naive downsampler
@@ -332,6 +381,7 @@ def _plot_upsampling():
 		LerpUpsampler,
 		ButterworthNonZOHUpsampler,
 		ButterworthZOHUpsampler,
+		PolyphaseIirAllpassUpsampler,
 	]
 
 	ratio = 8
