@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from .filter_base import IIRFilter
+from .filter_base import IIRFilterBase
 import numpy as np
 from utils import utils
 from typing import Tuple, List
@@ -9,7 +9,7 @@ from processor import ParallelProcessors
 from .filter_base import ParallelFilters
 
 
-class BasicPinkFilter(IIRFilter):
+class BasicPinkFilter(IIRFilterBase):
 	"""Pink noise (1/f) filter
 	Intended for 44.1-48 kHz; will work at higher sample rates but low frequency response will be off
 	"""

@@ -3,7 +3,7 @@
 
 import numpy as np
 from typing import Union, Optional, Iterable, List
-from filters.butterworth import ButterworthLowpass
+from filters.iir_filters import ButterworthLowpass
 from filters.filter_base import FilterBase
 
 

@@ -93,8 +93,20 @@ class ParallelFilters(FilterBase):
 		return y
 
 
-class IIRFilter(processor.ProcessorBase):
-	def __init__(self, a, b, verbose=False, form=FilterForm.D2t):
+class IIRFilterBase(processor.ProcessorBase):
+	"""
+	A generic IIR filter for given coefficients
+	Can also be used as an FIR filter if given A coeffs [1, 0...], but will be less efficient
+	"""
+
+	def __init__(self, a: List[float], b: List[float], verbose=False, form=FilterForm.D2t):
+		"""
+		:param a: feedback coefficients; a[0] must not be zero
+		:param b: feedforward coefficients; must be same length as a
+		:param verbose:
+		:param form:
+		"""
+
 
 		# Internal data type
 		self.dtype = np.float64
@@ -125,6 +137,12 @@ class IIRFilter(processor.ProcessorBase):
 			raise ValueError('Unexpected filter form %s!' % str(self.form.value))
 
 	def set_coeffs(self, a: List[float], b: List[float]):
+		"""
+		Set coefficients
+
+		:param a: feedback coefficients; a[0] must not be zero
+		:param b: feedforward coefficients; must be same length as a
+		"""
 
 		# TODO: support a and b vectors of different sizes
 		# e.g. for efficient FIR filters
@@ -196,7 +214,7 @@ def plot(args):
 	sample_rate = 48000.
 
 	# 4 1-pole filters in a row
-	class AllPoleFilter(IIRFilter):
+	class AllPoleFilter(IIRFilterBase):
 		def __init__(self, form, wc=(default_cutoff/sample_rate)):
 			a1 = -math.exp(-2.0 * math.pi * wc)
 			b0 = 1.0 + a1
@@ -208,7 +226,7 @@ def plot(args):
 
 	# Moving average filter
 	# (Actually an FIR filter, but IIRFilter can do it too)
-	class AllZeroFilter(IIRFilter):
+	class AllZeroFilter(IIRFilterBase):
 		def __init__(self, form):
 			print('Constructing AllZeroFilter, %s' % form.value)
 			super().__init__(
@@ -218,7 +236,7 @@ def plot(args):
 
 	# Pink noise filter (1/f)
 	# https://ccrma.stanford.edu/~jos/sasp/Example_Synthesis_1_F_Noise.html
-	class PinkFilter(IIRFilter):
+	class PinkFilter(IIRFilterBase):
 		def __init__(self, form):
 			super().__init__(
 				a=[1, -2.494956002, 2.017265875, -0.522189400],

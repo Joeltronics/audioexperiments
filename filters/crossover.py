@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from . import filter_base
-from . import butterworth
+from . import iir_filters
 from . import one_pole
 from typing import Tuple
 
@@ -16,7 +16,7 @@ class CrossoverLpf(filter_base.CascadedFilters):
 		if order == 1:
 			super().__init__([one_pole.BasicOnePole(wc, verbose=verbose) for _ in range(2)])
 		else:
-			super().__init__([butterworth.ButterworthLowpass(wc, order, verbose=verbose) for _ in range(2)])
+			super().__init__([iir_filters.ButterworthLowpass(wc, order, verbose=verbose) for _ in range(2)])
 
 
 class CrossoverHpf(filter_base.CascadedFilters):
@@ -29,7 +29,7 @@ class CrossoverHpf(filter_base.CascadedFilters):
 		if order == 1:
 			super().__init__([one_pole.BasicOnePoleHighpass(wc, verbose=verbose) for _ in range(2)])
 		else:
-			super().__init__([butterworth.ButterworthHighpass(wc, order, verbose=verbose) for _ in range(2)])
+			super().__init__([iir_filters.ButterworthHighpass(wc, order, verbose=verbose) for _ in range(2)])
 
 
 class _ParallelCrossover(filter_base.ParallelFilters):

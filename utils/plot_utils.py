@@ -87,7 +87,8 @@ def plot_freq_resp(
 		phase=False,
 		group_delay=False,
 		freq_args: Optional[List[str]]=None,
-		axes=None):
+		axes=None,
+		main_plot_ylim=None):
 	"""
 
 	:param constructors: one or more ProcessorBase constructors
@@ -185,16 +186,19 @@ def plot_freq_resp(
 
 	for constructor in constructors:
 		for extra_args in args_list:
-			extra_args_list = [_format_arg(k, v) for k, v in extra_args.items()]
-			full_label = ', '.join(common_args_list + extra_args_list)
-			label = ', '.join(extra_args_list)
+
+			this_args = common_args.copy()
+			this_args.update(extra_args)
+
+			full_label = ', '.join([_format_arg(k, v) for k, v in this_args.items()])
+			label = ', '.join([_format_arg(k, v) for k, v in extra_args.items()])
 
 			if full_label:
 				print('Constructing %s(%s)' % (constructor.__name__, full_label))
 			else:
 				print('Constructing %s' % constructor.__name__)
 
-			p = constructor(**common_args, **extra_args)
+			p = constructor(**this_args)
 
 			print('Processing %s' % type(p).__name__)
 
@@ -234,7 +238,12 @@ def plot_freq_resp(
 	min_amp = math.floor(min_amp_seen / 6.0) * 6.0
 
 	main_subplot.set_yticks(np.arange(min_amp, max_amp + 6, 6))
-	main_subplot.set_ylim([max(min_amp, -60.0), max(max_amp, 6.0)])
+
+	if main_plot_ylim is not None:
+		main_subplot.set_ylim(main_plot_ylim)
+	else:
+		main_subplot.set_ylim([max(min_amp, -60.0), max(max_amp, 6.0)])
+
 	main_subplot.grid()
 	if add_legend:
 		main_subplot.legend()
