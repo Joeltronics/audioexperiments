@@ -3,7 +3,7 @@
 
 import numpy as np
 from typing import Union, Optional, Iterable, List
-from filters.iir_filters import ButterworthLowpass
+from filters.iir_filters import IIRFilter, ButterworthLowpass
 from filters.filter_base import FilterBase
 
 
@@ -136,6 +136,34 @@ class FilterUpsampler(UpsamplerBase):
 
 	def process_vector(self, vec: np.ndarray) -> np.ndarray:
 		return self.lpf.process_vector(self.resampler.process_vector(vec))
+
+
+class IIRUpsampler(FilterUpsampler):
+	"""
+	Upsampler using an elliptic (Cauer) filter
+	Uses IIR filter, so not linear-phase
+	Not as efficient as a properly-implemented polyphase FIR filter
+	"""
+
+	def __init__(self, ratio: int, order=12, wc=None, zero_order_hold=True, passband_ripple_dB=0.5, stopband_ripple_dB=120):
+		"""
+		:param ratio: Upsampling ratio - must be integer > 1
+		:param order: Elliptic filter order
+		:param wc: Normalized cutoff frequency relative to original sample rate, typically 0.5
+		:param zero_order_hold: if true, will use zero-order-hold (as opposed to zero stuffing)
+		:param passband_ripple_dB:
+		:param stopband_ripple_dB:
+		"""
+		if ratio <= 1:
+			raise ValueError('Upsampler ratio must be > 1')
+		if wc is None:
+			wc = 0.5
+
+		wc /= ratio
+		super().__init__(
+			ratio,
+			IIRFilter(wc, order=order, passband_ripple_dB=passband_ripple_dB, stopband_ripple_dB=stopband_ripple_dB),
+			zero_order_hold=zero_order_hold)
 
 
 class ButterworthUpsampler(FilterUpsampler):
@@ -305,6 +333,31 @@ class FilterDownsampler(DownsamplerBase):
 		return self.resampler.process_vector(self.lpf.process_vector(vec))
 
 
+class IIRDownsampler(FilterDownsampler):
+	"""
+	Upsampler using an elliptic (Cauer) filter
+	Uses IIR filter, so not linear-phase
+	Not as efficient as a properly-implemented polyphase FIR filter
+	"""
+
+	def __init__(self, ratio: int, order=12, wc=None, passband_ripple_dB=0.5, stopband_ripple_dB=120):
+		"""
+		:param ratio: Upsampling ratio - must be integer > 1
+		:param order: Elliptic filter order
+		:param wc: Normalized cutoff frequency relative to original sample rate, typically 0.5 / ratio
+		:param passband_ripple_dB:
+		:param stopband_ripple_dB:
+		"""
+		if ratio <= 1:
+			raise ValueError('Upsampler ratio must be > 1')
+		if wc is None:
+			wc = 0.5 / ratio
+
+		super().__init__(
+			ratio,
+			IIRFilter(wc, order=order, passband_ripple_dB=passband_ripple_dB, stopband_ripple_dB=stopband_ripple_dB))
+
+
 class ButterworthDownsampler(FilterDownsampler):
 	"""
 	Upsampler using a Butterworth filter
@@ -326,7 +379,6 @@ class ButterworthDownsampler(FilterDownsampler):
 
 
 # TODO: Add actual good resamplers (i.e. polyphase FIR)
-# Though even an elliptic or Chebyshev 2 filter would be an improvement over Butterworth
 
 
 def _plot_time_domain_sweep(n_samp, ratio):
@@ -342,8 +394,8 @@ def _plot_time_domain_sweep(n_samp, ratio):
 
 	x = gen_freq_sweep_sine(0.0, 0.5, n_samp=n_samp, log=False)
 
-	ds = ButterworthDownsampler(ratio=ratio)
-	us = ButterworthUpsampler(ratio=ratio)
+	ds = IIRDownsampler(ratio=ratio)
+	us = IIRUpsampler(ratio=ratio)
 
 	y_down = ds.process_vector(x)
 	y_up = us.process_vector(x)
@@ -367,11 +419,11 @@ def _plot_upsampling():
 	from utils import utils
 	from utils.plot_utils import plot_fft
 
-	class ButterworthNonZOHUpsampler(ButterworthUpsampler):
+	class IIRNonZOHUpsampler(IIRUpsampler):
 		def __init__(self, ratio):
 			super().__init__(ratio=ratio, zero_order_hold=False)
 
-	class ButterworthZOHUpsampler(ButterworthUpsampler):
+	class IIRZOHUpsampler(IIRUpsampler):
 		def __init__(self, ratio):
 			super().__init__(ratio=ratio, zero_order_hold=True)
 
@@ -379,8 +431,9 @@ def _plot_upsampling():
 		ZeroStuffingUpsampler,
 		ZeroOrderHoldUpsampler,
 		LerpUpsampler,
-		ButterworthNonZOHUpsampler,
-		ButterworthZOHUpsampler,
+		IIRNonZOHUpsampler,
+		IIRZOHUpsampler,
+		ButterworthUpsampler,
 		PolyphaseIirAllpassUpsampler,
 	]
 
@@ -465,9 +518,9 @@ def _plot_downsampling(n_samp=4096):
 		90000.0, 95000.0
 	]
 
-	ds4 = ButterworthDownsampler(ratio=ratio, order=4)
-	ds8 = ButterworthDownsampler(ratio=ratio, order=8)
-	ds16 = ButterworthDownsampler(ratio=ratio, order=16)
+	ds4 = IIRDownsampler(ratio=ratio, order=4)
+	ds8 = IIRDownsampler(ratio=ratio, order=8)
+	ds16 = IIRDownsampler(ratio=ratio, order=16)
 
 	amp4 = np.zeros_like(freqs)
 	amp8 = np.zeros_like(freqs)
@@ -522,8 +575,8 @@ def _plot_freq_domain_sweep(ratio):
 
 	x = gen_freq_sweep_sine(0.0, 0.5, n_samp=n_samp, log=False)
 
-	ds = ButterworthDownsampler(ratio=4)
-	us = ButterworthUpsampler(ratio=4)
+	ds = IIRDownsampler(ratio=4)
+	us = IIRUpsampler(ratio=4)
 
 	y_down = ds.process_vector(x)
 	y_up = us.process_vector(x)
