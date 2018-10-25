@@ -100,6 +100,12 @@ class FeedforwardCompressor(ProcessorBase):
 		amp = self.amp_calc(sample)
 		return sample * self.gain_calc(amp)
 
+	def process_sample_debug(self, x: float):
+		amp = self.amp_calc(x)
+		gain = self.gain_calc(amp)
+		y = x * gain
+		return y, dict(amp=amp, gain=gain)
+
 
 class FeedbackCompressor(ProcessorBase):
 	def __init__(self, ratio: float, attack: float, release: float, threshold_dB=0.0, rms=False, dB=True):
@@ -185,9 +191,117 @@ class FeedbackCompressor(ProcessorBase):
 		self.gain_z1 = self.gain_calc(amp)
 		return y
 
+	def process_sample_debug(self, x: float):
+		y = x * self.gain_z1
+		amp = self.amp_calc(y)
+		debug_dict = dict(amp=amp, gain=self.gain_z1)
+		self.gain_z1 = self.gain_calc(amp)
+
+		return y, debug_dict
+
 
 def test(verbose=False):
 	pass
+
+
+def _plot_audio(ratio, knee_dB, attack_ms=30., release_ms=100., freq=1000, sample_rate=48000, n_samp=48000):
+	from matplotlib import pyplot as plt
+	from generation.signal_generation import gen_sine, sample_time_index
+
+	#attack_ms = 5.
+
+	attack = attack_ms / 1000. * sample_rate
+	release = release_ms / 1000. * sample_rate
+
+	x = gen_sine(freq / sample_rate, n_samp)
+
+	ampls = [0.5, 1.0, 2.0, 4.0, 0.5, 0.5, 0.5, 0.5]
+	n_samp_per_section = n_samp // len(ampls)
+	ampl = np.concatenate(tuple([np.ones(n_samp_per_section) * a for a in ampls]))
+	x *= ampl
+
+	y_ff = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, knee_dB=knee_dB).process_vector_debug(x)
+	y_fflin = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, dB=False).process_vector_debug(x)
+	y_fb = FeedbackCompressor(ratio=ratio, attack=attack, release=release).process_vector_debug(x)
+	y_fblin = FeedbackCompressor(ratio=ratio, attack=attack, release=release, dB=False).process_vector_debug(x)
+
+	ampl_ff = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, knee_dB=knee_dB).process_vector_debug(ampl)
+	ampl_fflin = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, dB=False).process_vector_debug(ampl)
+	ampl_fb = FeedbackCompressor(ratio=ratio, attack=attack, release=release).process_vector_debug(ampl)
+	ampl_fblin = FeedbackCompressor(ratio=ratio, attack=attack, release=release, dB=False).process_vector_debug(ampl)
+
+	t = sample_time_index(n_samp, sample_rate)
+
+	plt.figure()
+
+	plt.subplot(4, 1, 1)
+	plt.plot(t, x, label='Input')
+	plt.ylabel('Input')
+	plt.grid()
+
+	plt.subplot(4, 1, 2)
+	plt.plot(t, y_ff[0], label='FF')
+	plt.ylabel('FF')
+	plt.grid()
+
+	plt.subplot(4, 1, 3)
+	plt.plot(t, y_fb[0], label='FB')
+	plt.ylabel('FB')
+	plt.grid()
+
+	plt.subplot(4, 1, 4)
+	plt.plot(t, y_fblin[0], label='FB lin')
+	plt.ylabel('FB lin')
+	plt.grid()
+
+	plt.figure()
+
+	plt.plot(t, ampl, label='Input')
+	plt.plot(t, ampl_ff[0], label='FF')
+	plt.plot(t, ampl_fb[0], label='FB')
+	plt.plot(t, ampl_fflin[0], label='FF lin')
+	plt.plot(t, ampl_fblin[0], label='FB lin')
+	plt.legend()
+	plt.grid()
+
+	plt.figure()
+
+	plt.subplot(2, 1, 1)
+	plt.plot(t, x, label='Input')
+	plt.plot(t, y_ff[0], label='FB')
+	plt.plot(t, y_ff[1]['amp'], label='Amp')
+	plt.plot(t, y_ff[1]['gain'], label='Gain')
+	plt.title('Feedforward')
+	plt.legend()
+	plt.grid()
+
+	plt.subplot(2, 1, 2)
+	plt.plot(t, ampl, label='Input')
+	plt.plot(t, ampl_ff[0], label='FB')
+	plt.plot(t, ampl_ff[1]['amp'], label='Amp')
+	plt.plot(t, ampl_ff[1]['gain'], label='Gain')
+	plt.legend()
+	plt.grid()
+
+	plt.figure()
+
+	plt.subplot(2, 1, 1)
+	plt.plot(t, x, label='Input')
+	plt.plot(t, y_fb[0], label='FB')
+	plt.plot(t, y_fb[1]['amp'], label='Amp')
+	plt.plot(t, y_fb[1]['gain'], label='Gain')
+	plt.title('Feedback')
+	plt.legend()
+	plt.grid()
+
+	plt.subplot(2, 1, 2)
+	plt.plot(t, ampl, label='Input')
+	plt.plot(t, ampl_fb[0], label='FB')
+	plt.plot(t, ampl_fb[1]['amp'], label='Amp')
+	plt.plot(t, ampl_fb[1]['gain'], label='Gain')
+	plt.legend()
+	plt.grid()
+
 
 
 def _trace_comp_response(comp: ProcessorBase, amplitudes, min_samples=1, max_samples_per_ampl=10000, eps=0.01):
@@ -219,76 +333,14 @@ def _trace_comp_response(comp: ProcessorBase, amplitudes, min_samples=1, max_sam
 	return traced
 
 
-def plot(args):
+def _plot_trace(ratio, knee_dB):
 	from matplotlib import pyplot as plt
-	from generation.signal_generation import gen_sine, sample_time_index
-
-	freq = 1000
-	sample_rate = 48000
-	n_samp = 48000
-
-	ratio = 4.0
-	attack = 30. / 1000. * sample_rate
-	release = 100. / 1000. * sample_rate
-
-	knee_dB = 6.0
-
-	x = gen_sine(freq / sample_rate, n_samp)
-
-	ampls = [0.5, 1.0, 2.0, 4.0, 0.5, 0.5, 0.5, 0.5]
-	n_samp_per_section = n_samp // len(ampls)
-	ampl = np.concatenate(tuple([np.ones(n_samp_per_section) * a for a in ampls]))
-	x *= ampl
-
-	y_ff = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, knee_dB=knee_dB).process_vector(x)
-	y_fflin = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, dB=False).process_vector(x)
-	y_fb = FeedbackCompressor(ratio=ratio, attack=attack, release=release).process_vector(x)
-	y_fblin = FeedbackCompressor(ratio=ratio, attack=attack, release=release, dB=False).process_vector(x)
-
-	ampl_ff = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, knee_dB=knee_dB).process_vector(ampl)
-	ampl_fflin = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, dB=False).process_vector(ampl)
-	ampl_fb = FeedbackCompressor(ratio=ratio, attack=attack, release=release).process_vector(ampl)
-	ampl_fblin = FeedbackCompressor(ratio=ratio, attack=attack, release=release, dB=False).process_vector(ampl)
 
 	amp_trace = np.logspace(np.log10(0.1), np.log10(1000.), 1000)
 	y_ff_amp = _trace_comp_response(FeedforwardCompressor(ratio=ratio, attack=1, release=10, knee_dB=knee_dB), amp_trace, min_samples=1)
 	y_fflin_amp = _trace_comp_response(FeedforwardCompressor(ratio=ratio, attack=1, release=10, dB=False), amp_trace, min_samples=1)
 	y_fb_amp = _trace_comp_response(FeedbackCompressor(ratio=ratio, attack=10, release=10), amp_trace, min_samples=100)
 	y_fblin_amp = _trace_comp_response(FeedbackCompressor(ratio=ratio, attack=10, release=10, dB=False), amp_trace, min_samples=100)
-
-	t = sample_time_index(n_samp, sample_rate)
-
-	plt.figure()
-
-	plt.subplot(4, 1, 1)
-	plt.plot(t, x, label='Input')
-	plt.ylabel('Input')
-	plt.grid()
-
-	plt.subplot(4, 1, 2)
-	plt.plot(t, y_ff, label='FF')
-	plt.ylabel('FF')
-	plt.grid()
-
-	plt.subplot(4, 1, 3)
-	plt.plot(t, y_fb, label='FB')
-	plt.ylabel('FB')
-	plt.grid()
-
-	plt.subplot(4, 1, 4)
-	plt.plot(t, y_fblin, label='FB lin')
-	plt.ylabel('FB lin')
-	plt.grid()
-
-	plt.figure()
-
-	plt.plot(t, ampl, label='Input')
-	plt.plot(t, ampl_ff, label='FF')
-	plt.plot(t, ampl_fb, label='FB')
-	plt.plot(t, ampl_fflin, label='FF lin')
-	plt.plot(t, ampl_fblin, label='FB lin')
-	plt.legend()
-	plt.grid()
 
 	plt.figure()
 
@@ -368,6 +420,17 @@ def plot(args):
 	plt.ylabel('dB')
 	plt.xlim([-6, 12])
 	plt.ylim([-6, 6])
+
+
+def plot(args):
+	from matplotlib import pyplot as plt
+
+	ratio = 4.0
+	knee_dB = 6.0
+
+	_plot_audio(ratio, knee_dB)
+
+	_plot_trace(ratio, knee_dB)
 
 	plt.show()
 
