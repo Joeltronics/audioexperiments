@@ -108,7 +108,15 @@ class FeedforwardCompressor(ProcessorBase):
 
 
 class FeedbackCompressor(ProcessorBase):
-	def __init__(self, ratio: float, attack: float, release: float, threshold_dB=0.0, rms=False, dB=True):
+	def __init__(
+			self,
+			ratio: float,
+			attack: float,
+			release: float,
+			threshold_dB=0.0,
+			rms=False,
+			dB=True,
+			unbiased_detection=False):
 		"""
 		:param ratio: Must be > 0, typically > 1; infinity not supported
 		:param attack: attack time, in samples
@@ -116,6 +124,10 @@ class FeedbackCompressor(ProcessorBase):
 		:param threshold_dB: Threshold, in dBFS
 		:param rms: if true, will use RMS detector instead of peak detector
 		:param dB: if False, this will be a naive "quick and dirty" compressor that doesn't do dB conversion
+		:param unbiased_detection:
+			if True, uses the true amplitude for detection instead of clipping to >= threshold.
+			Will make release time consistent regardless of input, but can cause extra "hold" before attack kicks in
+			when first crossing the threshold.
 		"""
 
 		# TODO: optional soft knee
@@ -129,7 +141,7 @@ class FeedbackCompressor(ProcessorBase):
 		# Scale attack & release by ratio
 		# Figured this out empirically - it seems to be the same phenomenon as the Miller effect, but haven't sat down
 		# to do the math to figure out the details
-		# (ratio = 1 + gain, and Miller effect scales by gain - 1)
+		# (ratio = gain + 1, and Miller effect scales by gain - 1)
 		attack *= ratio
 		release *= ratio
 
@@ -138,6 +150,8 @@ class FeedbackCompressor(ProcessorBase):
 
 		self.gain_calc = self._gain_calc_dB if dB else self._gain_calc_lin
 		self.amp_calc = self._amp_calc_rms if rms else self._amp_calc_peak
+
+		self.biased_peak_detection = not unbiased_detection
 
 		self.thresh_dB = threshold_dB
 		self.thresh_lin = utils.from_dB(threshold_dB)
@@ -150,10 +164,28 @@ class FeedbackCompressor(ProcessorBase):
 		self.gain_z1 = 0.
 
 	def _amp_calc_peak(self, x):
-		return self.filt.process_sample(abs(x))
+		x = abs(x)
+
+		if self.biased_peak_detection:
+			x = max(x - self.thresh_lin, 0.)
+
+		a = self.filt.process_sample(x)
+
+		if self.biased_peak_detection:
+			a += self.thresh_lin
+
+		return a
 
 	def _amp_calc_rms(self, x):
-		return math.sqrt(self.filt.process_sample(x ** 2.0))
+		if self.biased_peak_detection:
+			x = max(abs(x) - self.thresh_lin, 0.)
+
+		a = math.sqrt(self.filt.process_sample(x ** 2.0))
+
+		if self.biased_peak_detection:
+			a += self.thresh_lin
+
+		return a
 
 	def _gain_calc_dB(self, amp):
 
@@ -204,18 +236,16 @@ def test(verbose=False):
 	pass
 
 
-def _plot_audio(ratio, knee_dB, attack_ms=30., release_ms=100., freq=1000, sample_rate=48000, n_samp=48000):
+def _plot_audio(ratio, knee_dB, attack_ms=30., release_ms=100., freq=1000, sample_rate=24000, n_samp=48000):
 	from matplotlib import pyplot as plt
 	from generation.signal_generation import gen_sine, sample_time_index
-
-	#attack_ms = 5.
 
 	attack = attack_ms / 1000. * sample_rate
 	release = release_ms / 1000. * sample_rate
 
 	x = gen_sine(freq / sample_rate, n_samp)
 
-	ampls = [0.5, 1.0, 2.0, 4.0, 0.5, 0.5, 0.5, 0.5]
+	ampls = [0.5, 1.0, 2.0, 4.0, 2.0, 2.0, 2.0, 4.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
 	n_samp_per_section = n_samp // len(ampls)
 	ampl = np.concatenate(tuple([np.ones(n_samp_per_section) * a for a in ampls]))
 	x *= ampl
@@ -224,11 +254,16 @@ def _plot_audio(ratio, knee_dB, attack_ms=30., release_ms=100., freq=1000, sampl
 	y_fflin = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, dB=False).process_vector_debug(x)
 	y_fb = FeedbackCompressor(ratio=ratio, attack=attack, release=release).process_vector_debug(x)
 	y_fblin = FeedbackCompressor(ratio=ratio, attack=attack, release=release, dB=False).process_vector_debug(x)
+	y_fbfullrange = FeedbackCompressor(
+		ratio=ratio, attack=attack, release=release, unbiased_detection=True).process_vector_debug(x)
 
 	ampl_ff = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, knee_dB=knee_dB).process_vector_debug(ampl)
+	ampl_ff_noknee = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, knee_dB=0).process_vector_debug(ampl)
 	ampl_fflin = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, dB=False).process_vector_debug(ampl)
 	ampl_fb = FeedbackCompressor(ratio=ratio, attack=attack, release=release).process_vector_debug(ampl)
 	ampl_fblin = FeedbackCompressor(ratio=ratio, attack=attack, release=release, dB=False).process_vector_debug(ampl)
+	ampl_fbfullrange = FeedbackCompressor(
+		ratio=ratio, attack=attack, release=release, unbiased_detection=True).process_vector_debug(ampl)
 
 	t = sample_time_index(n_samp, sample_rate)
 
@@ -256,36 +291,67 @@ def _plot_audio(ratio, knee_dB, attack_ms=30., release_ms=100., freq=1000, sampl
 
 	plt.figure()
 
+	plt.subplot(3, 1, 1)
 	plt.plot(t, ampl, label='Input')
-	plt.plot(t, ampl_ff[0], label='FF')
+	plt.plot(t, ampl_ff[0], label='FF (knee)')
 	plt.plot(t, ampl_fb[0], label='FB')
 	plt.plot(t, ampl_fflin[0], label='FF lin')
 	plt.plot(t, ampl_fblin[0], label='FB lin')
+	plt.plot(t, ampl_fbfullrange[0], label='FB unbiased')
+	plt.ylabel('linear')
+	plt.legend()
+	plt.grid()
+
+	plt.subplot(3, 1, 2)
+	plt.plot(t, ampl, label='Input')
+	plt.plot(t, ampl_ff_noknee[0], label='FF (no knee)')
+	plt.plot(t, ampl_fb[0], label='FB')
+	plt.plot(t, ampl_fbfullrange[0], label='FB unbiased')
+	plt.ylabel('linear')
+	plt.legend()
+	plt.grid()
+
+	plt.subplot(3, 1, 3)
+	plt.plot(t, utils.to_dB(ampl), label='Input')
+	plt.plot(t, utils.to_dB(ampl_ff_noknee[0]), label='FF (no knee)')
+	plt.plot(t, utils.to_dB(ampl_fb[0]), label='FB')
+	plt.plot(t, utils.to_dB(ampl_fbfullrange[0]), label='FB unbiased')
+	plt.ylabel('dB')
 	plt.legend()
 	plt.grid()
 
 	plt.figure()
 
-	plt.subplot(2, 1, 1)
+	plt.subplot(3, 1, 1)
 	plt.plot(t, x, label='Input')
-	plt.plot(t, y_ff[0], label='FB')
+	plt.plot(t, y_ff[0], label='FF')
 	plt.plot(t, y_ff[1]['amp'], label='Amp')
 	plt.plot(t, y_ff[1]['gain'], label='Gain')
 	plt.title('Feedforward')
 	plt.legend()
 	plt.grid()
 
-	plt.subplot(2, 1, 2)
+	plt.subplot(3, 1, 2)
 	plt.plot(t, ampl, label='Input')
-	plt.plot(t, ampl_ff[0], label='FB')
+	plt.plot(t, ampl_ff[0], label='FF')
 	plt.plot(t, ampl_ff[1]['amp'], label='Amp')
 	plt.plot(t, ampl_ff[1]['gain'], label='Gain')
 	plt.legend()
 	plt.grid()
 
+	plt.subplot(3, 1, 3)
+	plt.plot(t, utils.to_dB(ampl), label='Input')
+	plt.plot(t, utils.to_dB(ampl_ff[0]), label='FF')
+	plt.plot(t, utils.to_dB(ampl_ff[1]['amp']), label='Amp')
+	plt.plot(t, utils.to_dB(ampl_ff[1]['gain']), label='Gain')
+	plt.ylabel('dB')
+	plt.ylim([-15, 15])
+	plt.legend()
+	plt.grid()
+
 	plt.figure()
 
-	plt.subplot(2, 1, 1)
+	plt.subplot(3, 1, 1)
 	plt.plot(t, x, label='Input')
 	plt.plot(t, y_fb[0], label='FB')
 	plt.plot(t, y_fb[1]['amp'], label='Amp')
@@ -294,7 +360,7 @@ def _plot_audio(ratio, knee_dB, attack_ms=30., release_ms=100., freq=1000, sampl
 	plt.legend()
 	plt.grid()
 
-	plt.subplot(2, 1, 2)
+	plt.subplot(3, 1, 2)
 	plt.plot(t, ampl, label='Input')
 	plt.plot(t, ampl_fb[0], label='FB')
 	plt.plot(t, ampl_fb[1]['amp'], label='Amp')
@@ -302,6 +368,44 @@ def _plot_audio(ratio, knee_dB, attack_ms=30., release_ms=100., freq=1000, sampl
 	plt.legend()
 	plt.grid()
 
+	plt.subplot(3, 1, 3)
+	plt.plot(t, utils.to_dB(ampl), label='Input')
+	plt.plot(t, utils.to_dB(ampl_fb[0]), label='FB')
+	plt.plot(t, utils.to_dB(ampl_fb[1]['amp']), label='Amp')
+	plt.plot(t, utils.to_dB(ampl_fb[1]['gain']), label='Gain')
+	plt.ylabel('dB')
+	plt.ylim([-15, 15])
+	plt.legend()
+	plt.grid()
+
+	plt.figure()
+
+	plt.subplot(3, 1, 1)
+	plt.plot(t, x, label='Input')
+	plt.plot(t, y_fbfullrange[0], label='FB unbiased')
+	plt.plot(t, y_fbfullrange[1]['amp'], label='Amp')
+	plt.plot(t, y_fbfullrange[1]['gain'], label='Gain')
+	plt.title('Feedback, unbiased amplitude detection')
+	plt.legend()
+	plt.grid()
+
+	plt.subplot(3, 1, 2)
+	plt.plot(t, ampl, label='Input')
+	plt.plot(t, ampl_fbfullrange[0], label='FB unbiased')
+	plt.plot(t, ampl_fbfullrange[1]['amp'], label='Amp')
+	plt.plot(t, ampl_fbfullrange[1]['gain'], label='Gain')
+	plt.legend()
+	plt.grid()
+
+	plt.subplot(3, 1, 3)
+	plt.plot(t, utils.to_dB(ampl), label='Input')
+	plt.plot(t, utils.to_dB(ampl_fbfullrange[0]), label='FB unbiased')
+	plt.plot(t, utils.to_dB(ampl_fbfullrange[1]['amp']), label='Amp')
+	plt.plot(t, utils.to_dB(ampl_fbfullrange[1]['gain']), label='Gain')
+	plt.ylabel('dB')
+	plt.ylim([-15, 15])
+	plt.legend()
+	plt.grid()
 
 
 def _trace_comp_response(comp: ProcessorBase, amplitudes, min_samples=1, max_samples_per_ampl=10000, eps=0.01):
