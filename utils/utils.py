@@ -3,6 +3,7 @@
 from typing import Tuple, Any, List
 from generation import signal_generation
 from .approx_equal import *
+from typing import Optional
 
 _unit_tests = []
 
@@ -170,12 +171,21 @@ def _test_wrap05():
 _unit_tests.append(_test_wrap05)
 
 
-def to_dB(val_lin):
-	return 20.0*np.log10(val_lin)
-
-
 def from_dB(val_dB):
 	return np.power(10.0, val_dB / 20.0)
+
+
+def to_dB(val_lin, min_dB: Optional[float]=None):
+	"""
+	:param val_lin: can be scalar or numpy array
+	:param min_dB: clip to a minimum value, to prevent extremely low values and/or divide by zero
+	:return: val_lin, in dB
+	"""
+
+	if min_dB is not None:
+		val_lin = np.clip(val_lin, from_dB(min_dB), None)
+
+	return 20.0*np.log10(val_lin)
 
 
 def _test_dB():
@@ -191,6 +201,8 @@ def _test_dB():
 	test(1.0, 0.0)
 	test(2.0, double_amp_dB)
 	test(0.5, -double_amp_dB)
+
+	assert approx_equal(to_dB(0.0001, min_dB=0), 1.)
 
 
 _unit_tests.append(_test_dB)
