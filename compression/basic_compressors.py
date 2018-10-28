@@ -114,6 +114,7 @@ class FeedbackCompressor(ProcessorBase):
 			attack: float,
 			release: float,
 			threshold_dB=0.0,
+			knee_dB = 0.0,
 			rms=False,
 			dB=True,
 			unbiased_detection=False):
@@ -122,21 +123,27 @@ class FeedbackCompressor(ProcessorBase):
 		:param attack: attack time, in samples
 		:param release: release time, in samples
 		:param threshold_dB: Threshold, in dBFS
+		:param knee_dB: Total knee width, in dB - e.g. for knee width 6, knee is approx -2.5 to +3.5 dB
 		:param rms: if true, will use RMS detector instead of peak detector
 		:param dB: if False, this will be a naive "quick and dirty" compressor that doesn't do dB conversion
 		:param unbiased_detection:
 			if True, uses the true amplitude for detection instead of clipping to >= threshold.
 			Will make release time consistent regardless of input, but can cause extra "hold" before attack kicks in
 			when first crossing the threshold.
+			Not compatible with soft knee
 		"""
-
-		# TODO: optional soft knee
 
 		if ratio <= 0:
 			raise ValueError('Ratio must be positive')
 
 		if attack < 1.0 or release < 1.0:
 			raise ValueError('Attack and release must be at least 1 sample')
+
+		if knee_dB < 0.:
+			raise ValueError('Knee cannot be negative')
+
+		if unbiased_detection and knee_dB:
+			raise ValueError('Cannot use unbiased detection with soft knee')
 
 		# Scale attack & release by ratio
 		# Figured this out empirically - it seems to be the same phenomenon as the Miller effect, but haven't sat down
@@ -159,15 +166,35 @@ class FeedbackCompressor(ProcessorBase):
 		self.filt = BidirectionalOnePoleFilter(attack, release)
 		self.gain_z1 = 0.
 
+		self.knee_radius_lin = 1. - 2. / (1. + utils.from_dB(knee_dB))
+		self.knee_width_lin = 2.0 * self.knee_radius_lin
+		self.knee_start = self.thresh_lin - self.knee_radius_lin
+		self.knee_end = self.thresh_lin + self.knee_radius_lin
+
+		assert utils.approx_equal(utils.to_dB(self.knee_end) - utils.to_dB(self.knee_start), knee_dB)
+
 	def reset(self):
 		self.filt.reset()
 		self.gain_z1 = 0.
+
+	def _biased_detector_calc(self, x):
+		if x <= self.knee_start:
+			return 0
+
+		elif x < self.knee_end:
+			x = (x - self.knee_start) / self.knee_width_lin
+			x = x ** 2.
+			x *= self.knee_radius_lin
+			return x
+
+		else:
+			return x - self.thresh_lin
 
 	def _amp_calc_peak(self, x):
 		x = abs(x)
 
 		if self.biased_peak_detection:
-			x = max(x - self.thresh_lin, 0.)
+			x = self._biased_detector_calc(x)
 
 		a = self.filt.process_sample(x)
 
@@ -178,7 +205,7 @@ class FeedbackCompressor(ProcessorBase):
 
 	def _amp_calc_rms(self, x):
 		if self.biased_peak_detection:
-			x = max(abs(x) - self.thresh_lin, 0.)
+			x = self._biased_detector_calc(abs(x))
 
 		a = math.sqrt(self.filt.process_sample(x ** 2.0))
 
@@ -250,20 +277,21 @@ def _plot_audio(ratio, knee_dB, attack_ms=30., release_ms=100., freq=1000, sampl
 	ampl = np.concatenate(tuple([np.ones(n_samp_per_section) * a for a in ampls]))
 	x *= ampl
 
-	y_ff = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, knee_dB=knee_dB).process_vector_debug(x)
-	y_fflin = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, dB=False).process_vector_debug(x)
-	y_fb = FeedbackCompressor(ratio=ratio, attack=attack, release=release).process_vector_debug(x)
-	y_fblin = FeedbackCompressor(ratio=ratio, attack=attack, release=release, dB=False).process_vector_debug(x)
-	y_fbfullrange = FeedbackCompressor(
-		ratio=ratio, attack=attack, release=release, unbiased_detection=True).process_vector_debug(x)
+	common_args = dict(ratio=ratio, attack=attack, release=release)
 
-	ampl_ff = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, knee_dB=knee_dB).process_vector_debug(ampl)
-	ampl_ff_noknee = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, knee_dB=0).process_vector_debug(ampl)
-	ampl_fflin = FeedforwardCompressor(ratio=ratio, attack=attack, release=release, dB=False).process_vector_debug(ampl)
-	ampl_fb = FeedbackCompressor(ratio=ratio, attack=attack, release=release).process_vector_debug(ampl)
-	ampl_fblin = FeedbackCompressor(ratio=ratio, attack=attack, release=release, dB=False).process_vector_debug(ampl)
-	ampl_fbfullrange = FeedbackCompressor(
-		ratio=ratio, attack=attack, release=release, unbiased_detection=True).process_vector_debug(ampl)
+	y_ff = FeedforwardCompressor(**common_args, knee_dB=knee_dB).process_vector_debug(x)
+	y_fflin = FeedforwardCompressor(**common_args, dB=False).process_vector_debug(x)
+	y_fb = FeedbackCompressor(**common_args).process_vector_debug(x)
+	y_fblin = FeedbackCompressor(**common_args, dB=False).process_vector_debug(x)
+	y_fbfullrange = FeedbackCompressor(**common_args, unbiased_detection=True).process_vector_debug(x)
+
+	ampl_ff_knee = FeedforwardCompressor(**common_args, knee_dB=knee_dB).process_vector_debug(ampl)
+	ampl_ff_noknee = FeedforwardCompressor(**common_args, knee_dB=0).process_vector_debug(ampl)
+	ampl_fflin = FeedforwardCompressor(**common_args, dB=False).process_vector_debug(ampl)
+	ampl_fb_knee = FeedbackCompressor(**common_args, knee_dB=knee_dB).process_vector_debug(ampl)
+	ampl_fb_noknee = FeedbackCompressor(**common_args, knee_dB=0).process_vector_debug(ampl)
+	ampl_fblin = FeedbackCompressor(**common_args, dB=False).process_vector_debug(ampl)
+	ampl_fbfullrange = FeedbackCompressor(**common_args, unbiased_detection=True).process_vector_debug(ampl)
 
 	t = sample_time_index(n_samp, sample_rate)
 
@@ -293,8 +321,8 @@ def _plot_audio(ratio, knee_dB, attack_ms=30., release_ms=100., freq=1000, sampl
 
 	plt.subplot(3, 1, 1)
 	plt.plot(t, ampl, label='Input')
-	plt.plot(t, ampl_ff[0], label='FF (knee)')
-	plt.plot(t, ampl_fb[0], label='FB')
+	plt.plot(t, ampl_ff_knee[0], label='FF (soft knee)')
+	plt.plot(t, ampl_fb_knee[0], label='FB (soft knee)')
 	plt.plot(t, ampl_fflin[0], label='FF lin')
 	plt.plot(t, ampl_fblin[0], label='FB lin')
 	plt.plot(t, ampl_fbfullrange[0], label='FB unbiased')
@@ -304,8 +332,8 @@ def _plot_audio(ratio, knee_dB, attack_ms=30., release_ms=100., freq=1000, sampl
 
 	plt.subplot(3, 1, 2)
 	plt.plot(t, ampl, label='Input')
-	plt.plot(t, ampl_ff_noknee[0], label='FF (no knee)')
-	plt.plot(t, ampl_fb[0], label='FB')
+	plt.plot(t, ampl_ff_noknee[0], label='FF (hard knee)')
+	plt.plot(t, ampl_fb_noknee[0], label='FB (hard knee)')
 	plt.plot(t, ampl_fbfullrange[0], label='FB unbiased')
 	plt.ylabel('linear')
 	plt.legend()
@@ -313,8 +341,8 @@ def _plot_audio(ratio, knee_dB, attack_ms=30., release_ms=100., freq=1000, sampl
 
 	plt.subplot(3, 1, 3)
 	plt.plot(t, utils.to_dB(ampl, min_dB=-100), label='Input')
-	plt.plot(t, utils.to_dB(ampl_ff_noknee[0], min_dB=-100), label='FF (no knee)')
-	plt.plot(t, utils.to_dB(ampl_fb[0], min_dB=-100), label='FB')
+	plt.plot(t, utils.to_dB(ampl_ff_noknee[0], min_dB=-100), label='FF (hard knee)')
+	plt.plot(t, utils.to_dB(ampl_fb_noknee[0], min_dB=-100), label='FB (hard knee)')
 	plt.plot(t, utils.to_dB(ampl_fbfullrange[0], min_dB=-100), label='FB unbiased')
 	plt.ylim([-15, 15])
 	plt.ylabel('dB')
@@ -334,17 +362,17 @@ def _plot_audio(ratio, knee_dB, attack_ms=30., release_ms=100., freq=1000, sampl
 
 	plt.subplot(3, 1, 2)
 	plt.plot(t, ampl, label='Input')
-	plt.plot(t, ampl_ff[0], label='FF')
-	plt.plot(t, ampl_ff[1]['amp'], label='Amp')
-	plt.plot(t, ampl_ff[1]['gain'], label='Gain')
+	plt.plot(t, ampl_ff_knee[0], label='FF')
+	plt.plot(t, ampl_ff_knee[1]['amp'], label='Amp')
+	plt.plot(t, ampl_ff_knee[1]['gain'], label='Gain')
 	plt.legend()
 	plt.grid()
 
 	plt.subplot(3, 1, 3)
 	plt.plot(t, utils.to_dB(ampl, min_dB=-100), label='Input')
-	plt.plot(t, utils.to_dB(ampl_ff[0], min_dB=-100), label='FF')
-	plt.plot(t, utils.to_dB(ampl_ff[1]['amp'], min_dB=-100), label='Amp')
-	plt.plot(t, utils.to_dB(ampl_ff[1]['gain'], min_dB=-100), label='Gain')
+	plt.plot(t, utils.to_dB(ampl_ff_knee[0], min_dB=-100), label='FF')
+	plt.plot(t, utils.to_dB(ampl_ff_knee[1]['amp'], min_dB=-100), label='Amp')
+	plt.plot(t, utils.to_dB(ampl_ff_knee[1]['gain'], min_dB=-100), label='Gain')
 	plt.ylabel('dB')
 	plt.ylim([-15, 15])
 	plt.legend()
@@ -363,17 +391,17 @@ def _plot_audio(ratio, knee_dB, attack_ms=30., release_ms=100., freq=1000, sampl
 
 	plt.subplot(3, 1, 2)
 	plt.plot(t, ampl, label='Input')
-	plt.plot(t, ampl_fb[0], label='FB')
-	plt.plot(t, ampl_fb[1]['amp'], label='Amp')
-	plt.plot(t, ampl_fb[1]['gain'], label='Gain')
+	plt.plot(t, ampl_fb_noknee[0], label='FB')
+	plt.plot(t, ampl_fb_noknee[1]['amp'], label='Amp')
+	plt.plot(t, ampl_fb_noknee[1]['gain'], label='Gain')
 	plt.legend()
 	plt.grid()
 
 	plt.subplot(3, 1, 3)
 	plt.plot(t, utils.to_dB(ampl, min_dB=-100), label='Input')
-	plt.plot(t, utils.to_dB(ampl_fb[0], min_dB=-100), label='FB')
-	plt.plot(t, utils.to_dB(ampl_fb[1]['amp'], min_dB=-100), label='Amp')
-	plt.plot(t, utils.to_dB(ampl_fb[1]['gain'], min_dB=-100), label='Gain')
+	plt.plot(t, utils.to_dB(ampl_fb_noknee[0], min_dB=-100), label='FB')
+	plt.plot(t, utils.to_dB(ampl_fb_noknee[1]['amp'], min_dB=-100), label='Amp')
+	plt.plot(t, utils.to_dB(ampl_fb_noknee[1]['gain'], min_dB=-100), label='Gain')
 	plt.ylabel('dB')
 	plt.ylim([-15, 15])
 	plt.legend()
@@ -441,11 +469,17 @@ def _trace_comp_response(comp: ProcessorBase, amplitudes, min_samples=1, max_sam
 def _plot_trace(ratio, knee_dB):
 	from matplotlib import pyplot as plt
 
-	amp_trace = np.logspace(np.log10(0.1), np.log10(1000.), 1000)
+	amp_trace = np.logspace(np.log10(0.01), np.log10(10000.), 2000)
 	y_ff_amp = _trace_comp_response(FeedforwardCompressor(ratio=ratio, attack=1, release=10, knee_dB=knee_dB), amp_trace, min_samples=1)
 	y_fflin_amp = _trace_comp_response(FeedforwardCompressor(ratio=ratio, attack=1, release=10, dB=False), amp_trace, min_samples=1)
-	y_fb_amp = _trace_comp_response(FeedbackCompressor(ratio=ratio, attack=10, release=10), amp_trace, min_samples=100)
+	y_fb_amp = _trace_comp_response(FeedbackCompressor(ratio=ratio, attack=10, release=10, knee_dB=knee_dB), amp_trace, min_samples=100)
 	y_fblin_amp = _trace_comp_response(FeedbackCompressor(ratio=ratio, attack=10, release=10, dB=False), amp_trace, min_samples=100)
+
+	ratio_vsoft = 20.
+	knee_vsoft = 20.
+
+	y_ff_verysoft = _trace_comp_response(FeedforwardCompressor(ratio=ratio_vsoft, attack=10, release=10, knee_dB=knee_vsoft), amp_trace, min_samples=100)
+	y_fb_verysoft = _trace_comp_response(FeedbackCompressor(ratio=ratio_vsoft, attack=10, release=10, knee_dB=knee_vsoft), amp_trace, min_samples=100)
 
 	plt.figure()
 
@@ -455,12 +489,13 @@ def _plot_trace(ratio, knee_dB):
 	plt.grid()
 	plt.legend()
 	plt.ylabel('linear')
-	plt.title('Linear, Ratio = %s' % utils.to_pretty_str(ratio))
+	plt.title('Linear, ratio %s, knee %s dB' % (utils.to_pretty_str(ratio), knee_dB))
 
 	plt.subplot(2, 2, 3)
 	plt.plot(amp_trace, y_ff_amp, label='FF')
 	plt.plot(amp_trace, y_fb_amp, label='FB')
 	plt.grid()
+	plt.title('Closeup')
 	plt.xlabel('linear')
 	plt.ylabel('linear')
 	plt.xlim([0, 10])
@@ -475,13 +510,14 @@ def _plot_trace(ratio, knee_dB):
 	plt.plot()
 	plt.grid()
 	plt.ylabel('dB')
-	plt.title('dB, Ratio = %s' % utils.to_pretty_str(ratio))
+	plt.title('dB, ratio %s, knee %s dB' % (utils.to_pretty_str(ratio), knee_dB))
 
 	plt.subplot(2, 2, 4)
 	plt.plot(amp_trace_dB, y_ff_amp_dB, label='FF')
 	plt.plot(amp_trace_dB, y_fb_amp_dB, label='FB')
 	plt.plot()
 	plt.grid()
+	plt.title('Closeup')
 	plt.xlabel('dB')
 	plt.ylabel('dB')
 	plt.xlim([-6, 12])
@@ -525,6 +561,22 @@ def _plot_trace(ratio, knee_dB):
 	plt.ylabel('dB')
 	plt.xlim([-6, 12])
 	plt.ylim([-6, 6])
+
+	plt.figure()
+
+	verysoft_equivalent_hard_dB = np.zeros_like(amp_trace_dB)
+	for n, x in enumerate(amp_trace_dB):
+		if x <= 0.:
+			verysoft_equivalent_hard_dB[n] = x
+		else:
+			verysoft_equivalent_hard_dB[n] = x / ratio_vsoft
+
+	plt.plot(amp_trace_dB, verysoft_equivalent_hard_dB, label='Hard equivalent')
+	plt.plot(amp_trace_dB, utils.to_dB(y_ff_verysoft), label='FF')
+	plt.plot(amp_trace_dB, utils.to_dB(y_fb_verysoft), label='FB')
+	plt.title('Very soft knee - ratio %s, knee %s dB' % (ratio_vsoft, knee_vsoft))
+	plt.legend()
+	plt.grid()
 
 
 def plot(args):
