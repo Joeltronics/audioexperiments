@@ -3,7 +3,7 @@
 
 import numpy as np
 from typing import Union
-import utils
+from utils import utils
 
 
 def clip(vals: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
@@ -16,5 +16,25 @@ def tanh(vals: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
 
 
 def sigmoid(vals: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
-	"""1 / (1 + |x|) sigmoid; even softer clipping than tanh"""
-	return 1.0 / (1.0 + np.abs(vals))
+	"""x / (1 + |x|) sigmoid; even softer clipping than tanh"""
+	return vals / (1.0 + np.abs(vals))
+
+
+def plot(args):
+	from matplotlib import pyplot as plt
+
+	x = np.linspace(-10., 10., 1024)
+
+	plt.figure()
+
+	plt.plot(x, clip(x), label='clip')
+	plt.plot(x, tanh(x), label='tanh')
+	plt.plot(x, sigmoid(x), label='Sigmoid')
+	plt.grid()
+	plt.legend()
+
+	plt.show()
+
+
+def main(args):
+	plot(args)
