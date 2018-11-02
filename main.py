@@ -31,6 +31,9 @@ if args.plot:
 
 if not args.test and not args.plot:
 	if hasattr(mod, 'main'):
-		mod.main(remaining_args)
+		ret = mod.main(remaining_args)
+		if ret:
+			print('Returned %s' % ret)
+		exit(ret)
 	else:
 		print("Error: module '%s' has no main()" % args.module)
