@@ -3,10 +3,36 @@
 
 import numpy as np
 from scipy import integrate
-
 from utils import utils
-
 from typing import Union, Tuple
+
+
+"""
+A long-tailed transistor pair is used as an input stage for nearly all opamps and OTAs, and is typically one of the most
+significant nonlinearities. The large-signal behavior of an ideal long-tailed pair follows the formula:
+
+    y = tanh(g_ol * (x_pos - x_neg)) 
+
+Opamps are commonly used in a negative feedback configuration, where the output is connected to the negative input -
+either directly, in order to act as a unity-gain buffer, or through some sort of gain reduction stage (typically a
+voltage divider), in which case it acts as an amplifier where the small-signal gain is given by the formula:
+
+    gain = g_ol / (1 + g_ol * g_fb)
+
+For sufficiently high open loop gain, the resulting system gain can be approximated as:
+ 
+    gain = 1 + 1/g_fb
+
+In this case, the large-signal formula for the opamp (simulating only the tanh nonlinearity) is:
+
+    y = tanh(g_ol * (x - g_fb * y))
+
+y = f(x) cannot be solved analytically; the inverse of this equation, x = f(y), can:
+
+    x = g_fb * y + atanh(y) / g_ol
+
+The goal of this module is to provide a numerical solution to y = f(x)
+"""
 
 
 def _clip1(x):
@@ -15,24 +41,41 @@ def _clip1(x):
 
 
 def _tanh_x_dx(x):
-	"""d/dx tanh(x)"""
+	"""
+	d/dx tanh(x) = 1 - tanh(x)^2
+	"""
 	return 1. - np.square(np.tanh(x))
 
 
 def _atanh_x_dx(x):
-	"""d/dx atanh(x)"""
+	"""
+	d/dx atanh(x) = 1 / (1 + x^2)
+	"""
 	return 1. / (1. - np.square(x))
 
 
-def _fb_gain_formula(open_loop, neg_feedback):
+def _fb_gain_formula(open_loop_gain: float, neg_feedback: float) -> float:
 	"""
 	Calculate gain based on open-loop gain and negative feedback
 
-	:param open_loop: open-loop gain 
+	:param open_loop_gain: open-loop gain
 	:param neg_feedback: positive value, < 1
 	:return: resulting gain
 	"""
-	return open_loop / (1.0 + open_loop * neg_feedback)
+	return open_loop_gain / (1.0 + open_loop_gain * neg_feedback)
+
+
+def _get_x_calculation_range(open_loop_gain: float, neg_feedback: float, eps=utils.from_dB(160.)):
+	"""
+	Calculate the maximum value of abs(x) where tanh_fb(x) will return a value that is not within epsilon of +/- 1
+	i.e. the x range within which a calculation is actually necessary
+
+	:param open_loop_gain: open loop gain
+	:param neg_feedback: positive value, < 1
+	:param eps: epsilon value
+	:return:
+	"""
+	return inverse_tanh_fb(1.0 - eps, open_loop_gain, neg_feedback)
 
 
 def _interp_method_inner(olg, nfb, tanh_xg, clip_xg):
@@ -59,22 +102,31 @@ def _interp_method(x, olg, nfb, gain=None):
 	return _interp_method_inner(olg, nfb, np.tanh(gain * x), _clip1(gain * x))
 
 
-def _nr_iterate_1_samp(x, olg, nfb, gain=None, n_iter_max=100, eps=1.0e-6) -> Tuple[float, int]:
+def _nr_iterate_1_samp(x, olg, nfb, gain=None, n_iter_max=100, eps=1.0e-6, x_range=None) -> Tuple[float, int]:
 	"""
 	Iterate Newton-Raphson method (for single input sample)
 
 	:param x: input value
 	:param olg: open-loop gain
 	:param nfb: negative feedback (positive value < 1)
-	:param gain: ptional precalculated gain from _fb_gain_formula
+	:param gain: optional precalculated gain from _fb_gain_formula
 	:param n_iter_max: Max number of iterations
 	:param eps: maximum error
+	:param x_range: optional precalculated x range from _get_x_calculation_range()
 	"""
 
 	assert n_iter_max >= 1
 
 	if x == 0.:
 		return 0., 0
+
+	if x_range is None:
+		x_range = _get_x_calculation_range(olg, nfb, eps=eps)
+
+	if x > x_range:
+		return 1., 0
+	elif x < -x_range:
+		return -1., 0
 
 	if gain is None:
 		gain = _fb_gain_formula(olg, nfb)
@@ -102,6 +154,8 @@ def _nr_iterate_1_samp(x, olg, nfb, gain=None, n_iter_max=100, eps=1.0e-6) -> Tu
 		# f(y) and f'(y) are only valid in range (-1, 1)
 		# So N-R can result in a next estimate value that's out of bounds
 
+		# TODO: is this even possible anymore now that input outside of x_range is clipped?
+
 		# If residue was smaller than eps, then just clip to (-1, 1), don't worry about next NR estimate
 		if abs(r) < eps:
 			y = _clip1(y)
@@ -115,7 +169,7 @@ def _nr_iterate_1_samp(x, olg, nfb, gain=None, n_iter_max=100, eps=1.0e-6) -> Tu
 	return y, n
 
 
-def tanh_fb(x: Union[float, np.ndarray], open_loop_gain: float, neg_feedback: float) -> Union[float, np.ndarray]:
+def tanh_fb(x: Union[float, np.ndarray], open_loop_gain: float, neg_feedback: float, eps=1.e-6) -> Union[float, np.ndarray]:
 	"""
 	Solves: y = tanh(olg * (x - nfb*y))
 	i.e. olg*nfb*y + atanh(y) - olg*x = 0
@@ -132,24 +186,38 @@ def tanh_fb(x: Union[float, np.ndarray], open_loop_gain: float, neg_feedback: fl
 
 	gain = _fb_gain_formula(open_loop_gain, neg_feedback)
 
+	x_range = _get_x_calculation_range(open_loop_gain, neg_feedback, eps=eps)
+
 	if np.isscalar(x):
-		y, _ = _nr_iterate_1_samp(x, open_loop_gain, neg_feedback, gain)
+		y, _ = _nr_iterate_1_samp(x, open_loop_gain, neg_feedback, gain, eps=eps, x_range=x_range)
 	else:
 		y = np.zeros_like(x)
 		for n, xx in enumerate(y):
-			y[n], _ = _nr_iterate_1_samp(x, open_loop_gain, neg_feedback, gain)
+			y[n], _ = _nr_iterate_1_samp(x, open_loop_gain, neg_feedback, gain, eps=eps, x_range=x_range)
 
 	return y
 
 
-def plot(args):
-	from matplotlib import pyplot as plt
-	import argparse
+def inverse_tanh_fb(y: Union[float, np.ndarray], open_loop_gain: float, neg_feedback: float) -> Union[float, np.ndarray]:
+	"""
+	Solves inverse of tanh feedback
+	i.e. solves x = f(y), for y = tanh(olg * (x - nfb*y))
 
-	parser = argparse.ArgumentParser()
-	parser.add_argument('--olg', type=float, help='Open-loop gain, default 100')
-	parser.add_argument('--fbg', type=float, help='Gain from negative feedback (i.e. reciprocal of actual feedback), default 10')
-	args = parser.parse_args(args)
+	:param open_loop_gain: open-loop gain
+	:param neg_feedback: positive value, < 1
+	:return:
+	"""
+
+	if neg_feedback < 0:
+		raise ValueError('Negative feedback must be a positive value (yeah, you read that right)')
+	elif open_loop_gain == 0:
+		raise ValueError('Open-loop gain cannot be negative')
+
+	return neg_feedback * y + np.arctanh(y) / open_loop_gain
+
+
+def _parse_args(args):
+	import argparse
 
 	# Open loop gain
 	# Use a relatively low value (100) because:
@@ -158,30 +226,53 @@ def plot(args):
 	# * Original method takes > 100 iter to converge if olg is too high
 	#
 	# Note that several pieces of code here make the assumption olg * nfb >> 1, so can't go *too* low
-	if args.olg is not None:
-		olg = args.olg
-	else:
-		olg = 100.0
+	default_olg = 100
+	default_fbg = 10
 
-	# Negative feedback
-	if args.fbg is not None:
-		recip_nfb = args.fbg
-	else:
-		recip_nfb = 10.
+	default_eps_dB = -120
 
-	nfb = 1.0 / recip_nfb
+	parser = argparse.ArgumentParser()
+	parser.add_argument(
+		'--olg', type=float, default=float(default_olg),
+		help='Open-loop gain, default %i' % default_olg)
+	parser.add_argument(
+		'--fbg', type=float, default=float(default_fbg),
+		help='Gain from negative feedback (i.e. reciprocal of actual feedback), default %i' % default_fbg)
+	parser.add_argument(
+		'--precision', type=float, default=float(default_eps_dB),
+		help='Precision, in dB, default %i' % default_eps_dB)
+	parser.add_argument('--xrange', type=float, default=0.5, help='Range to plot')
+	parser.add_argument('--nsamp', type=int, default=20001, help='# samples to plot')
+	args = parser.parse_args(args)
 
-	if olg * nfb <= 1.:
+	if args.fgb >= 0.:
+		raise ValueError('Feedback amount must be positive')
+
+	if args.olg / args.fbg <= 1.:
 		raise ValueError('Feedback must be < open-loop gain')
-	elif olg * nfb < 9:
+	elif args.olg / args.fbg < 9:
 		print('WARNING: feedback should be much smaller than open-loop')
 
-	gain = _fb_gain_formula(olg, nfb)
+	if args.precision >= 0.:
+		raise ValueError('precision must be negative dB value')
 
-	n_samp = 20001
-	x_range = 2.0
-	# x_range = 0.5
-	# x_range = 0.25
+	return args
+
+
+def plot(args):
+	from matplotlib import pyplot as plt
+
+	args = _parse_args(args)
+
+	olg = args.olg
+	nfb = 1.0 / args.fbg
+	eps_dB = args.precision
+
+	gain = _fb_gain_formula(olg, nfb)
+	eps = utils.from_dB(eps_dB)
+
+	n_samp = args.nsamp
+	x_range = args.xrange
 
 	n_iter_max = 100
 
@@ -190,23 +281,21 @@ def plot(args):
 	y = np.zeros_like(x)
 	n_iter = np.zeros_like(x)
 	for n, samp in enumerate(x):
-		y[n], n_iter[n] = _nr_iterate_1_samp(samp, olg, nfb, gain, n_iter_max=n_iter_max)
+		y[n], n_iter[n] = _nr_iterate_1_samp(samp, olg, nfb, gain, n_iter_max=n_iter_max, eps=eps)
 
 	if any(n_iter >= n_iter_max):
 		print('WARNING: Failed to converge in %i iterations' % np.amax(n_iter_max))
-
-	#print('Calculating combined method')
-	#y_iter_combined, n_iter_combined = _iterate_over_inputs(_combined, x)
 
 	print('Calculating other methods')
 	y_tanh = np.tanh(x * gain)
 	y_open_loop = np.tanh(x * olg)
 	y_interp_method = _interp_method(x, olg, nfb, gain)
-	y_ideal = _clip1(x * gain)  # Ideal but with finite open-loop gain
-	y_infinite_olg = _clip1(x / nfb)
+	y_ideal_finite_olg = _clip1(x * gain)
+	y_ideal_infinite_olg = _clip1(x / nfb)
 
 	gain_tanh = np.gradient(y_tanh, x)
-	gain_ideal = np.gradient(y_ideal, x)
+	gain_ideal_finite_olg = np.gradient(y_ideal_finite_olg, x)
+	gain_ideal_infinite_olg = np.gradient(y_ideal_infinite_olg, x)
 	gain_interp = np.gradient(y_interp_method, x)
 	gain_open_loop = np.gradient(y_open_loop, x)
 	gain_actual = np.gradient(y, x)
@@ -219,10 +308,11 @@ def plot(args):
 
 	plt.subplot(3, 1, 1)
 
-	plt.title('Iterative solution; OL gain %g, FB gain %g' % (olg, 1.0 / nfb))
+	plt.title('Iterative solution; OL gain %g, FB gain %g, precision %i dB' % (olg, 1.0 / nfb, eps_dB))
 	plt.plot(x, y_open_loop, 'r', label='open-loop')
 	plt.plot(x, y_tanh, label='tanh')
-	plt.plot(x, y_ideal, label='Ideal opamp')
+	plt.plot(x, y_ideal_finite_olg, label='Ideal opamp (finite OLG)')
+	plt.plot(x, y_ideal_infinite_olg, label='Ideal opamp (infinite OLG)')
 	plt.plot(x, y_interp_method, label='Interp tanh and ideal')
 	plt.plot(x, y, label='Actual')
 	plt.legend()
@@ -233,12 +323,13 @@ def plot(args):
 	plt.subplot(3, 1, 2)
 	plt.plot(x, gain_open_loop, 'r', label='open-loop')
 	plt.plot(x, gain_tanh, label='tanh')
-	plt.plot(x, gain_ideal, label='Ideal opamp')
+	plt.plot(x, gain_ideal_finite_olg, label='Ideal opamp (finite OLG)')
+	plt.plot(x, gain_ideal_infinite_olg, label='Ideal opamp (infinite OLG)')
 	plt.plot(x, gain_interp, label='Interp tanh and ideal')
 	plt.plot(x, gain_actual, label='Actual')
 	plt.axhline(1.0 / nfb, label='Feedback gain')
 	plt.legend()
-	plt.ylabel('Slope (gain)')
+	plt.ylabel('Slope (small-signal gain)')
 	plt.xlim([-x_range, x_range])
 	plt.ylim(gain_ylims)
 	plt.grid()
@@ -256,23 +347,6 @@ def main(args):
 	from matplotlib import pyplot as plt
 	import argparse
 
-	parser = argparse.ArgumentParser()
-	parser.add_argument('--olg', type=float, help='Open-loop gain, default 100')
-	parser.add_argument('--fbg', type=float, help='Gain from negative feedback (i.e. reciprocal of actual feedback), default 10')
-	args = parser.parse_args(args)
-
-	def sanity_check(x):
-		y = np.tanh(x)
-		dydx = _tanh_x_dx(x)
-		plt.figure()
-		plt.plot(x, y, label='tanh(x)')
-		plt.plot(x, dydx, label='d/dx tanh(x)')
-		plt.grid()
-		plt.title('Sanity check')
-		plt.legend()
-
-	sanity_check(np.linspace(-10, 10, 1001))
-
 	# Open loop gain
 	# Use a relatively low value (100) because:
 	# * Graphs are easier to see
@@ -280,35 +354,75 @@ def main(args):
 	# * Original method takes > 100 iter to converge if olg is too high
 	#
 	# Note that several pieces of code here make the assumption olg * nfb >> 1, so can't go *too* low
-	if args.olg is not None:
-		olg = args.olg
-	else:
-		olg = 100.0
+	default_olg = 100
+	default_fbg = 10
 
-	# Negative feedback
-	if args.fbg is not None:
-		recip_nfb = args.fbg
-	else:
-		recip_nfb = 10.
+	default_eps_dB = -120
 
+	parser = argparse.ArgumentParser()
+	parser.add_argument(
+		'--olg', type=float, default=float(default_olg),
+		help='Open-loop gain, default %i' % default_olg)
+	parser.add_argument(
+		'--fbg', type=float, default=float(default_fbg),
+		help='Gain from negative feedback (i.e. reciprocal of actual feedback), default %i' % default_fbg)
+	parser.add_argument(
+		'--precision', type=float, default=float(default_eps_dB),
+		help='Precision, in dB, default %i' % default_eps_dB)
+	parser.add_argument('--xrange', type=float, default=0.5, help='Range to plot')
+	parser.add_argument('--nsamp', type=int, default=20001, help='# samples to plot')
+	args = parser.parse_args(args)
+
+	"""
+	def sanity_check(x):
+		y = np.tanh(x)
+		dydx = _tanh_x_dx(x)
+		plt.figure()
+		plt.plot(x, y, label='tanh(x)')
+		plt.plot(x, dydx, label='d/dx tanh(x)')
+		plt.grid()
+		plt.title('Sanity check d/dx tanh(x)')
+		plt.legend()
+
+	sanity_check(np.linspace(-10, 10, 1001))
+	"""
+
+	olg = args.olg
+	recip_nfb = args.fbg
 	nfb = 1.0 / recip_nfb
+
+	eps_dB = args.precision
+
+	n_samp = args.nsamp
+	x_range = args.xrange
 
 	if olg * nfb <= 1.:
 		raise ValueError('Feedback must be < open-loop gain')
 	elif olg * nfb < 9:
 		print('WARNING: feedback should be much smaller than open-loop')
 
+	if eps_dB >= 0.:
+		raise ValueError('precision must be negative dB value')
+
 	gain = _fb_gain_formula(olg, nfb)
+	eps = utils.from_dB(eps_dB)
 
 	print('Open-loop gain: %g' % olg)
 	print('Negative feedback: 1/%g' % recip_nfb)
 	print('Resulting gain: %g' % gain)
 	print('')
 
-	n_samp = 20001
-	x_range = 2.0
-	#x_range = 0.5
-	#x_range = 0.25
+	x_calc_range = _get_x_calculation_range(olg, nfb, eps=eps)
+	y_calc_range = 1.0 - eps
+
+	y_inv = np.linspace(-y_calc_range, y_calc_range, n_samp)
+	x_inv = inverse_tanh_fb(y_inv, olg, nfb)
+
+	assert utils.approx_equal(x_calc_range, np.amax(np.abs(x_inv)))
+
+	print('Precision: %g dB = %g' % (eps_dB, eps))
+	print('x range where y != +/- 1: +/- %f' % x_calc_range)
+	print('')
 
 	x = np.linspace(-x_range, x_range, n_samp)
 	x_half = x[:-1] + np.diff(x) / 2  # Halfway between samples
@@ -323,13 +437,12 @@ def main(args):
 		return _clip1(x * olg)
 
 	def _fb(x):
-		return \
-			x * nfb
+		return x * nfb
 
 	def _fb_x_dx(x):
 		return nfb
 
-	def _iterate_over_inputs(f, x, n_iter_max=100, eps=1.0e-6, **kwargs):
+	def _iterate_over_inputs(f, x, n_iter_max=100, eps=eps, **kwargs):
 		y = np.zeros_like(x)
 		n_iter = np.zeros_like(x)
 		for n, samp in enumerate(x):
@@ -342,7 +455,7 @@ def main(args):
 
 		return y, n_iter
 
-	def _original_iterate_1_samp(x, n_iter_max, eps):
+	def _naive_iterate_1_samp(x, n_iter_max, eps=eps):
 
 		assert n_iter_max >= 1
 
@@ -368,7 +481,7 @@ def main(args):
 
 		return y, n
 
-	def _bisect_1_samp(x, n_iter_max=100, eps=1.0e-6, interp=True):
+	def _bisect_1_samp(x, n_iter_max=100, eps=eps, interp=True):
 
 		assert n_iter_max >= 1
 
@@ -450,14 +563,8 @@ def main(args):
 
 		return y, n
 
-	def _combined(x, n_iter_max=100, eps=.10e-6):
-		if abs(x) > 1.0 / gain:
-			return _bisect_1_samp(x, n_iter_max, eps, interp=False)
-		else:
-			return _nr_iterate_1_samp(x, olg, nfb, gain, n_iter_max, eps, new_init_guess_method=True)
-
-	print('Calculating original iterative method')
-	y_iter_orig, n_iter_orig = _iterate_over_inputs(_original_iterate_1_samp, x)
+	print('Calculating naive iteration')
+	y_iter_naive, n_iter_naive = _iterate_over_inputs(_naive_iterate_1_samp, x)
 
 	print('Calculating bisection method with interpolation')
 	y_iter_bisect, n_iter_bisect_interp = _iterate_over_inputs(_bisect_1_samp, x, interp=True)
@@ -468,55 +575,78 @@ def main(args):
 	print('Calculating Newton-Raphson method')
 	y_iter_nr, n_iter_nr = _iterate_over_inputs(_nr_iterate_1_samp, x, olg=olg, nfb=nfb, gain=gain)
 
-	#print('Calculating combined method')
-	#y_iter_combined, n_iter_combined = _iterate_over_inputs(_combined, x)
-
 	print('Calculating other methods')
 	y_tanh = np.tanh(x * gain)
 	y_open_loop = _opamp(x, 0.0)
 	y_interp_method = _interp_method(x, olg, nfb, gain)
-	y_ideal = _clip1(x * gain)  # Ideal but with finite open-loop gain
-	y_infinite_olg = _clip1(x / nfb)
+	y_ideal_finite_olg = _clip1(x * gain)  # Ideal but with finite open-loop gain
+	y_ideal_infinite_olg = _clip1(x * recip_nfb)
 
 	print('Plotting')
 
 	plt.figure()
 
 	plt.subplot(2, 1, 1)
-
-	plt.title('Iterative solution; OL gain %g, FB gain %g' % (olg, 1.0 / nfb))
-	plt.plot(x, y_iter_nr, label='Iterative (N-R)')
-	plt.plot(x, y_tanh, label='tanh')
-	plt.plot(x, y_ideal, label='Ideal opamp')
-	plt.plot(x, y_interp_method, label='interp tanh and ideal')
-	plt.plot(x, y_open_loop, label='open-loop')
-	plt.legend()
-	plt.ylabel('Transfer Function')
-	plt.xlim([-x_range, x_range])
+	plt.title('Actual (based on inverse)')
+	plt.plot(x_inv, y_inv)
 	plt.grid()
+	plt.ylabel('Transfer function')
 
 	plt.subplot(2, 1, 2)
-	plt.axvline(-1.0/gain)
-	plt.axvline(1.0/gain)
-	plt.plot(x, n_iter_orig, label='# iter orig')
+	plt.plot(x_inv, np.gradient(y_inv, x_inv))
+	plt.grid()
+	plt.ylabel('Slope (small-signal gain)')
+
+	plt.figure()
+
+	plt.subplot(2, 1, 1)
+	plt.title('OL gain %g, FB gain %g' % (olg, 1.0 / nfb))
+	plt.plot(x, y_open_loop, label='open-loop')
+	plt.plot(x_inv, y_inv, label='Actual')
+	plt.plot(x, y_tanh, label='tanh')
+	plt.plot(x, y_ideal_finite_olg, label='Ideal opamp (finite OLG)')
+	plt.plot(x, y_ideal_infinite_olg, label='Ideal opamp (infinite OLG)')
+	plt.plot(x, y_interp_method, label='interp tanh and ideal')
+	plt.legend()
+	plt.xlim([-x_range, x_range])
+	plt.grid()
+	plt.ylabel('Transfer Function')
+
+	plt.subplot(2, 1, 2)
+	plt.plot(x, np.gradient(y_open_loop, x), label='open-loop')
+	plt.plot(x_inv, np.gradient(y_inv, x_inv), label='Actual')
+	plt.plot(x, np.gradient(y_tanh, x), label='tanh')
+	plt.plot(x, np.gradient(y_ideal_finite_olg, x), label='Ideal opamp (finite OLG)')
+	plt.plot(x, np.gradient(y_ideal_infinite_olg, x), label='Ideal opamp (infinite OLG)')
+	plt.plot(x, np.gradient(y_interp_method, x), label='interp tanh and ideal')
+	plt.xlim([-x_range, x_range])
+	plt.grid()
+	plt.legend()
+	plt.ylabel('Slope (small-signal gain)')
+	plt.ylim([-0.1 / nfb, 1.1 / nfb])
+
+	plt.figure()
+
+	#plt.subplot(2, 1, 1)
+	plt.title('Iterative solution; OL gain %g, FB gain %g, precision %g dB' % (olg, 1.0 / nfb, eps_dB))
+	# TODO: plot error here
+	#plt.plot(x_inv, y_inv, label='Actual')
+	#plt.legend()
+	#plt.ylabel('Transfer Function')
+	#plt.xlim([-x_range, x_range])
+	#plt.grid()
+
+	#plt.subplot(2, 1, 2)
+	plt.plot(x, n_iter_naive, label='# iter naive')
 	plt.plot(x, n_iter_bisect_interp, label='# iter bisect, interp')
 	plt.plot(x, n_iter_bisect_avg, label='# iter bisect, average')
 	plt.plot(x, n_iter_nr, label='# iter N-R')
-	#plt.plot(x, n_iter_combined, label='# iter, combined method')
 	plt.legend()
 	plt.ylabel('# iterations')
 	plt.xlim([-x_range, x_range])
 	plt.grid()
 
 	if False:
-
-		# Calculate gain for these
-
-		print('Calculating gains')
-
-		gain_iter = np.gradient(y_iter_orig, x)
-		gain_tanh = np.gradient(y_tanh, x)
-		gain_ideal = np.gradient(y_ideal, x)
 
 		# Here's the real meat of all this: try to do this non-iteratively
 
@@ -538,7 +668,7 @@ def main(args):
 		plt.figure()
 
 		plt.subplot(2, 1, 1)
-		plt.plot(x, y_iter_orig, label='Iterative')
+		plt.plot(x, y_iter_naive, label='Iterative')
 		plt.legend()
 		plt.ylabel('Transfer Function')
 		plt.xlim([-x_range, x_range])
