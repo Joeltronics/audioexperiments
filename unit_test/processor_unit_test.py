@@ -247,6 +247,28 @@ class ProcessorUnitTest:
 			raise UnitTestFailure('Filter gave different results after reset!')
 
 		#
+		# Test get_state and set_state
+		#
+
+		crazy_vector = np.array([-123.4, 0.01, 9999.0, -0.000001, -987654321.0])
+		crazy_vector2 = np.array([999.9, -0.1, -9999999.0, 0.1234567, 123456789.0])
+
+		filt.reset()
+		filt.process_vector(crazy_vector)
+
+		state = filt.get_state()
+		y1 = filt.process_vector(x)
+
+		filt.reset()
+		filt.process_vector(crazy_vector2)
+		filt.set_state(state)
+		y2 = filt.process_vector(x)
+
+		if not approx_equal_vector(y1, y2):
+			self._plot_equal_failure(y1, y2, 'Original', 'After get & set_state')
+			raise UnitTestFailure('Filter gave different results after set_state!')
+
+		#
 		# Test that process_sample and process_vector give same results
 		#
 

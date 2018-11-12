@@ -51,6 +51,12 @@ class IIRFilter(FilterBase):
 	def reset(self):
 		self.filt.reset()
 
+	def get_state(self):
+		return self.filt.get_state()
+
+	def set_state(self, state):
+		self.filt.set_state(state)
+
 	def set_freq(self, wc):
 		self._set(wc)
 

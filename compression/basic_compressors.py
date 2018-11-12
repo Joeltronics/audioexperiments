@@ -49,6 +49,12 @@ class FeedforwardCompressor(ProcessorBase):
 	def reset(self):
 		self.filt.reset()
 
+	def get_state(self):
+		return self.filt.get_state()
+
+	def set_state(self, s):
+		self.filt.set_state(s)
+
 	def _soft_knee_reduction_dB(self, amp):
 		# Returns output gain
 
@@ -176,6 +182,13 @@ class FeedbackCompressor(ProcessorBase):
 	def reset(self):
 		self.filt.reset()
 		self.gain_z1 = 0.
+
+	def get_state(self):
+		return [self.gain_z1, self.filt.get_state()]
+
+	def set_state(self, s):
+		self.gain_z1 = s[0]
+		self.filt.set_state(s[1])
 
 	def _biased_detector_calc(self, x):
 		if x <= self.knee_start:

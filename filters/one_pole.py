@@ -34,6 +34,12 @@ class BasicOnePole(FilterBase):
 	def reset(self):
 		self.z1 = 0.0
 
+	def get_state(self):
+		return self.z1
+
+	def set_state(self, s):
+		self.z1 = s
+
 	def set_freq(self, wc, gain=None):
 		super().throw_if_invalid_freq(wc)
 
@@ -176,6 +182,12 @@ class BasicOnePoleHighpass(FilterBase):
 	def reset(self):
 		self.lpf.reset()
 
+	def get_state(self):
+		return self.lpf.get_state()
+
+	def set_state(self, s):
+		self.lpf.set_state(s)
+
 	def set_freq(self, wc):
 		self.lpf.set_freq(wc)
 
@@ -210,6 +222,12 @@ class TrapzOnePole(FilterBase):
 
 	def reset(self):
 		self.s = 0.0
+
+	def get_state(self):
+		return self.s
+
+	def set_state(self, s):
+		self.s = s
 
 	def set_freq(self, wc):
 		super().throw_if_invalid_freq(wc)
@@ -260,6 +278,13 @@ class TrapzOnePoleHighpass(FilterBase):
 		self.x_prev = 0.0
 		self.lpf.reset()
 
+	def get_state(self):
+		return [self.x_prev, self.lpf.get_state()]
+
+	def set_state(self, s):
+		self.x_prev = s[0]
+		self.lpf.set_state(s[1])
+
 	def process_sample(self, x):
 		y = x - self.lpf.process_sample(0.5 * (x + self.x_prev))
 		self.x_prev = x
@@ -292,6 +317,15 @@ class LeakyIntegrator(FilterBase):
 
 		if verbose:
 			print('Leaky integrator: wc=%f, a1=%f, b0=%f, gain=%.2f dB' % (wc, -self.lpf.na1, self.lpf.b0, utils.to_dB(gain)))
+
+	def reset(self):
+		self.lpf.reset()
+
+	def get_state(self):
+		return self.lpf.get_state()
+
+	def set_state(self, s):
+		self.lpf.set_state(s)
 
 	def set_freq(self, wc):
 		self.lpf.set_freq(wc, gain=self._calc_gain(wc))

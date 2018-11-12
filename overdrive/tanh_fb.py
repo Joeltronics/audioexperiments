@@ -6,7 +6,7 @@ from scipy import integrate
 from utils import utils
 from typing import Union, Tuple
 
-from processor import ProcessorBase
+from processor import StatelessProcessorBase
 
 
 """
@@ -134,7 +134,7 @@ def inverse_tanh_fb(y: Union[float, np.ndarray], open_loop_gain: float, neg_feed
 	return neg_feedback * y + np.arctanh(y) / open_loop_gain
 
 
-class TanhFb(ProcessorBase):
+class TanhFb(StatelessProcessorBase):
 	def __init__(self, open_loop_gain: float, neg_feedback: float, eps=1.e-6, n_iter_max=100):
 		"""
 		:param open_loop_gain: open-loop gain

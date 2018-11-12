@@ -43,6 +43,12 @@ class BidirectionalOnePoleFilter(ProcessorBase):
 	def reset(self):
 		self.z1 = 0.0
 
+	def get_state(self):
+		return self.z1
+
+	def set_state(self, s):
+		self.z1 = s
+
 	def _set_freqs(self, rise_time, fall_time, gain=None):
 
 		if rise_time == 0.0 or fall_time == 0.0:

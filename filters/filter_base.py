@@ -38,6 +38,15 @@ class FilterBase(processor.ProcessorBase):
 			y[n] = self.process_sample(xx)
 		return y
 
+	def reset(self) -> None:
+		raise NotImplementedError('reset() to be implemented by the child class!')
+
+	def get_state(self) -> Any:
+		raise NotImplementedError('get_state() to be implemented by the child class!')
+
+	def set_state(self, state: Any) -> None:
+		raise NotImplementedError('set_state() to be implemented by the child class!')
+
 	@staticmethod
 	def throw_if_invalid_freq(wc):
 		if wc >= 0.5:
@@ -54,6 +63,13 @@ class CascadedFilters(FilterBase):
 	def reset(self):
 		for f in self.filters:
 			f.reset()
+
+	def get_state(self):
+		return [f.get_state() for f in self.filters]
+
+	def set_state(self, state):
+		for f, s in zip(self.filters, state):
+			f.set_state(s)
 
 	def set_freq(self, wc, **kwargs):
 		for f in self.filters:
@@ -74,6 +90,13 @@ class ParallelFilters(FilterBase):
 	def reset(self):
 		for f in self.filters:
 			f.reset()
+
+	def get_state(self):
+		return [f.get_state() for f in self.filters]
+
+	def set_state(self, state):
+		for f, s in zip(self.filters, state):
+			f.set_state(s)
 
 	def set_freq(self, wc, **kwargs):
 		for f in self.filters:
@@ -133,6 +156,22 @@ class IIRFilterBase(processor.ProcessorBase):
 			self.zx = np.zeros(self.order, dtype=self.dtype)
 			self.zy = np.zeros(self.order, dtype=self.dtype)
 
+		else:
+			raise ValueError('Unexpected filter form %s!' % str(self.form.value))
+
+	def get_state(self) -> Any:
+		if self.form in [FilterForm.D2, FilterForm.D2t]:
+			return np.copy(self.z)
+		elif self.form in [FilterForm.D1, FilterForm.D1t]:
+			return np.copy(self.zx), np.copy(self.zy)
+		else:
+			raise ValueError('Unexpected filter form %s!' % str(self.form.value))
+
+	def set_state(self, state: Any) -> None:
+		if self.form in [FilterForm.D2, FilterForm.D2t]:
+			self.z = state
+		elif self.form in [FilterForm.D1, FilterForm.D1t]:
+			self.zx, self.zy = state
 		else:
 			raise ValueError('Unexpected filter form %s!' % str(self.form.value))
 

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
 import numpy as np
-from typing import Union, Tuple
+from typing import Any, Union, Tuple, List
 
 
 class ProcessorBase:
+	stateful = True
+
 	def process_sample(self, sample: float) -> float:
 		raise NotImplementedError('process_sample() to be implemented by the child class!')
 
@@ -41,20 +43,52 @@ class ProcessorBase:
 			return self.process_vector(input)
 
 	def reset(self) -> None:
-		"""Reset Processor state (but not parameters)"""
-		pass
+		"""Reset processor state (but not parameters)"""
+		raise NotImplementedError('reset() to be implemented by the child class!')
+
+	def get_state(self) -> Any:
+		"""Get processor state"""
+		raise NotImplementedError('get_state() to be implemented by the child class!')
+
+	def set_state(self, state: Any) -> None:
+		"""Set processor state"""
+		raise NotImplementedError('set_state() to be implemented by the child class!')
 
 	def __call__(self, *args, **kwargs):
 		return self.process(*args, **kwargs)
 
 
+class StatelessProcessorBase(ProcessorBase):
+	stateful = False
+
+	def process_sample(self, sample: float) -> float:
+		raise NotImplementedError('process_sample() to be implemented by the child class!')
+
+	def reset(self) -> None:
+		pass
+
+	def get_state(self) -> Any:
+		return None
+
+	def set_state(self, state: Any) -> None:
+		pass
+
+
 class CascadedProcessors(ProcessorBase):
 	def __init__(self, processors):
 		self.processors = processors
-	
+		self.stateful = any([p.stateful for p in self.processors])
+
 	def reset(self):
 		for p in self.processors:
 			p.reset()
+
+	def get_state(self):
+		return [p.get_state() for p in self.processors]
+
+	def set_state(self, state: List[Any]):
+		for p, s in zip(self.processors, state):
+			p.set_state(s)
 
 	def process_sample(self, x):
 		y = x
@@ -72,10 +106,18 @@ class CascadedProcessors(ProcessorBase):
 class ParallelProcessors(ProcessorBase):
 	def __init__(self, processors):
 		self.processors = processors
+		self.stateful = any([p.stateful for p in self.processors])
 
 	def reset(self):
 		for p in self.processors:
 			p.reset()
+
+	def get_state(self):
+		return [p.get_state() for p in self.processors]
+
+	def set_state(self, state: List[Any]):
+		for p, s in zip(self.processors, state):
+			p.set_state(s)
 
 	def process_sample(self, x):
 		return sum([p.process_sample(x) for p in self.processors])

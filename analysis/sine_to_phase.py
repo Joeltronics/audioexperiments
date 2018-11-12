@@ -15,7 +15,13 @@ class SineToPhase(ProcessorBase):
 
 	def reset(self):
 		self.prev_s = 0
-	
+
+	def get_state(self):
+		return self.prev_s
+
+	def set_state(self, s):
+		self.prev_s = s
+
 	def process_sample(self, s):
 		base_angle = np.arcsin(s)  # Angle in range -pi/2, pi/2
 		phase = base_angle / (2*pi)  # Phase in range -0.25, 0.25

@@ -35,6 +35,18 @@ class BiquadFilterBase(FilterBase):
 			self.zx = np.array([0.0, 0.0], dtype=self.dtype)
 			self.zy = np.array([0.0, 0.0], dtype=self.dtype)
 
+	def get_state(self):
+		if self.form in [FilterForm.D2, FilterForm.D2t]:
+			return np.copy(self.z)
+		else:
+			return [np.copy(self.zx), np.copy(self.zy)]
+
+	def set_state(self, state):
+		if self.form in [FilterForm.D2, FilterForm.D2t]:
+			self.z = state
+		else:
+			self.zx, self.zy = state
+
 	def set_coeffs(self, a: Tuple[float, float, float], b: Tuple[float, float, float]):
 		if len(a) != len(b) != 3:
 			raise ValueError('biquad a & b coeff vectors must have length 3')
