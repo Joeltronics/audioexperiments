@@ -451,23 +451,34 @@ def main(args):
 	def _fb_x_dx(x):
 		return nfb
 
-	def _print_n_iter(n_iter, n_iter_max=100):
+	def _print_n_iter(n_iter, n_iter_max=100, err=None):
 		if any(n_iter >= n_iter_max):
-			print('WARNING: Failed to converge in %i iterations' % np.amax(100))
+			if err is not None:
+				print('WARNING: Failed to converge in %i iterations, max error %.3f dB' % (
+					np.amax(n_iter), utils.to_dB(np.amax(err))))
+			else:
+				print('WARNING: Failed to converge in %i iterations' % np.amax(np.abs(n_iter)))
+		elif err is not None:
+			print('Iterations range: %u-%u, average %.2f, max err %.3f dB' % (
+				np.amin(n_iter), np.amax(n_iter), np.average(n_iter), utils.to_dB(np.amax(np.abs(err)))))
 		else:
 			print('Iterations range: %u-%u, average %.2f' % (
-			np.amin(n_iter), np.amax(n_iter), np.average(n_iter)))
+				np.amin(n_iter), np.amax(n_iter), np.average(n_iter)))
 
-	def _iterate_over_inputs(f, x, n_iter_max=100, eps=eps, **kwargs):
+	def _iterate_over_inputs(f, x, n_iter_max=100, eps=eps, golden=None, **kwargs):
 		y = np.zeros_like(x)
 		n_iter = np.zeros_like(x)
 		for n, samp in enumerate(x):
 			y[n], n_iter[n] = f(samp, n_iter_max=n_iter_max, eps=eps, **kwargs)
 
-		_print_n_iter(n_iter)
+		if golden is None:
+			_print_n_iter(n_iter)
+		else:
+			err = np.abs(y - golden)
+			_print_n_iter(n_iter, err=err)
 		return y, n_iter
 
-	def _naive_iterate_1_samp(x, n_iter_max, eps=eps, init_est_clip=True, lowpass_method=1):
+	def _naive_iterate_1_samp(x, n_iter_max, eps=eps, init_est_clip=True, lowpass_method=1, filter_before=False):
 
 		assert n_iter_max >= 1
 
@@ -496,32 +507,54 @@ def main(args):
 		for n in range(1, n_iter_max+1):
 			y_prev = y
 			neg_in = _fb(y)
+			y = _opamp(x, neg_in)  # theoretical y, pre-limiting
 
-			y_raw = _opamp(x, neg_in)  # theoretical y, pre-limiting
-			y = y_raw*b0 + y_prev*na1
+			if filter_before:
 
-			diff = abs(y - y_prev)
-			if diff < eps:
-				break
+				y = y*b0 + y_prev*na1
 
-			if diff_prev is None:
-				diff_prev = diff
-				continue
+				diff = abs(y - y_prev)
+				if diff < eps:
+					break
 
-			if lowpass_method == 1 and diff > diff_prev:
-				raise ValueError("Failed to converge for x=%f - shouldn't be possible with lowpass method 1!" % x)
+				if diff_prev is None:
+					diff_prev = diff
+					continue
 
-			if (lowpass_method == 3 and diff > diff_prev) or (lowpass_method == 4 and diff > 0.5*diff_prev):
-				y = y_prev
-				diff = diff_prev
+				if lowpass_method == 1 and diff > diff_prev:
+					raise ValueError("Failed to converge for x=%f - shouldn't be possible with lowpass method 1!" % x)
 
-				b0 *= 0.5
-				na1 = 1.0 - b0
+				if (lowpass_method == 3 and diff > diff_prev) or (lowpass_method == 4 and diff > 0.5*diff_prev):
+					y = y_prev
+					diff = diff_prev
 
-			# Also tried a method where we always reduce coeffs regardless of diff - it appeared to converge quickly,
-			# but this was incorrect in most cases becasue
+					b0 *= 0.5
+					na1 = 1.0 - b0
+
+				# Also tried a method where we always reduce coeffs regardless of diff - it appeared to converge quickly,
+				# but this was incorrect in most cases becasue
+
+			else:
+				diff = abs(y - y_prev)
+
+				if diff < eps:
+					break
+
+				if diff_prev is not None:
+					if lowpass_method == 1 and diff > diff_prev:
+						raise ValueError("Failed to converge for x=%f - shouldn't be possible with lowpass method 1!" % x)
+
+					if (lowpass_method == 3 and diff > diff_prev) or (lowpass_method == 4 and diff > 0.5 * diff_prev):
+						y = y_prev
+						diff = diff_prev
+
+						b0 *= 0.5
+						na1 = 1.0 - b0
+
+				y = y * b0 + y_prev * na1
 
 			diff_prev = diff
+
 
 		return y, n
 
@@ -619,6 +652,8 @@ def main(args):
 	def _err_dB(y):
 		return utils.to_dB(np.abs(y - y_iter_nr_golden), min_dB=eps_golden_dB)
 
+	yg = y_iter_nr_golden
+
 	print('Calculating naive non-iterative methods')
 	y_tanh = np.tanh(x * gain)
 	y_open_loop = _opamp(x, 0.0)
@@ -627,40 +662,50 @@ def main(args):
 	y_ideal_infinite_olg = _clip1(x * gain_from_fb)
 
 	print('Calculating naive iteration')
-	y_iter_naive1, n_iter_naive1 = _iterate_over_inputs(_naive_iterate_1_samp, x, lowpass_method=1)
-	y_iter_naive1_noclip, n_iter_naive1_noclip = _iterate_over_inputs(_naive_iterate_1_samp, x, lowpass_method=1, init_est_clip=False)
-	y_iter_naive2, n_iter_naive2 = _iterate_over_inputs(_naive_iterate_1_samp, x, lowpass_method=2)
-	y_iter_naive3, n_iter_naive3 = _iterate_over_inputs(_naive_iterate_1_samp, x, lowpass_method=3)
-	y_iter_naive4, n_iter_naive4 = _iterate_over_inputs(_naive_iterate_1_samp, x, lowpass_method=4)
+	print('Method 1, filter before then after')
+	y_iter_naive1b, n_iter_naive1b = _iterate_over_inputs(_naive_iterate_1_samp, x, lowpass_method=1, filter_before=True, golden=yg)
+	y_iter_naive1a, n_iter_naive1a = _iterate_over_inputs(_naive_iterate_1_samp, x, lowpass_method=1, filter_before=False, golden=yg)
+	print('Method 1 no clip, filter before then after')
+	y_iter_naive1_noclipb, n_iter_naive1_noclipb = _iterate_over_inputs(_naive_iterate_1_samp, x, lowpass_method=1, init_est_clip=False, filter_before=True, golden=yg)
+	y_iter_naive1_noclipa, n_iter_naive1_noclipa = _iterate_over_inputs(_naive_iterate_1_samp, x, lowpass_method=1, init_est_clip=False, filter_before=False, golden=yg)
+	print('Method 2, filter before then after')
+	y_iter_naive2b, n_iter_naive2b = _iterate_over_inputs(_naive_iterate_1_samp, x, lowpass_method=2, filter_before=True, golden=yg)
+	y_iter_naive2a, n_iter_naive2a = _iterate_over_inputs(_naive_iterate_1_samp, x, lowpass_method=2, filter_before=False, golden=yg)
+	print('Method 3, filter before then after')
+	y_iter_naive3b, n_iter_naive3b = _iterate_over_inputs(_naive_iterate_1_samp, x, lowpass_method=3, filter_before=True, golden=yg)
+	y_iter_naive3a, n_iter_naive3a = _iterate_over_inputs(_naive_iterate_1_samp, x, lowpass_method=3, filter_before=False, golden=yg)
+	print('Method 4, filter before then after')
+	y_iter_naive4b, n_iter_naive4b = _iterate_over_inputs(_naive_iterate_1_samp, x, lowpass_method=4, filter_before=True, golden=yg)
+	y_iter_naive4a, n_iter_naive4a = _iterate_over_inputs(_naive_iterate_1_samp, x, lowpass_method=4, filter_before=False, golden=yg)
 
-	y_iter_naive, n_iter_naive = y_iter_naive1, n_iter_naive1
+	y_iter_naive, n_iter_naive = y_iter_naive1a, n_iter_naive1a
 
 	plt.figure()
 	plt.subplot(3, 1, 1)
 	plt.title('Naive iteration methods')
-	plt.plot(x, y_iter_naive1, label='Lowpass method 1')
-	plt.plot(x, y_iter_naive1_noclip, label='Lowpass method 1 w/ interp method')
-	plt.plot(x, y_iter_naive2, label='Lowpass method 2')
-	plt.plot(x, y_iter_naive3, label='Lowpass method 3')
-	plt.plot(x, y_iter_naive4, label='Lowpass method 4')
+	plt.plot(x, y_iter_naive1a, label='Lowpass method 1')
+	plt.plot(x, y_iter_naive1_noclipa, label='Lowpass method 1 w/ interp method')
+	plt.plot(x, y_iter_naive2a, label='Lowpass method 2')
+	plt.plot(x, y_iter_naive3a, label='Lowpass method 3')
+	plt.plot(x, y_iter_naive4a, label='Lowpass method 4')
 	plt.ylabel('Transfer function')
 	plt.legend()
 	plt.grid()
 	plt.subplot(3, 1, 2)
-	plt.plot(x, n_iter_naive1, label='Lowpass method 1')
-	plt.plot(x, n_iter_naive1_noclip, label='Lowpass method 1 w/ interp method')
-	plt.plot(x, n_iter_naive2, label='Lowpass method 2')
-	plt.plot(x, n_iter_naive3, label='Lowpass method 3')
-	plt.plot(x, n_iter_naive4, label='Lowpass method 4')
+	plt.plot(x, n_iter_naive1a, label='Lowpass method 1')
+	plt.plot(x, n_iter_naive1_noclipa, label='Lowpass method 1 w/ interp method')
+	plt.plot(x, n_iter_naive2a, label='Lowpass method 2')
+	plt.plot(x, n_iter_naive3a, label='Lowpass method 3')
+	plt.plot(x, n_iter_naive4a, label='Lowpass method 4')
 	plt.ylabel('# Iterations')
 	plt.legend()
 	plt.grid()
 	plt.subplot(3, 1, 3)
-	plt.plot(x, _err_dB(y_iter_naive1), label='Lowpass method 1')
-	plt.plot(x, _err_dB(y_iter_naive1_noclip), label='Lowpass method 1 w/ interp method')
-	plt.plot(x, _err_dB(y_iter_naive2), label='Lowpass method 2')
-	plt.plot(x, _err_dB(y_iter_naive3), label='Lowpass method 3')
-	plt.plot(x, _err_dB(y_iter_naive4), label='Lowpass method 4')
+	plt.plot(x, _err_dB(y_iter_naive1a), label='Lowpass method 1')
+	plt.plot(x, _err_dB(y_iter_naive1_noclipa), label='Lowpass method 1 w/ interp method')
+	plt.plot(x, _err_dB(y_iter_naive2a), label='Lowpass method 2')
+	plt.plot(x, _err_dB(y_iter_naive3a), label='Lowpass method 3')
+	plt.plot(x, _err_dB(y_iter_naive4a), label='Lowpass method 4')
 	plt.ylabel('Error (dB)')
 	plt.legend()
 	plt.grid()
