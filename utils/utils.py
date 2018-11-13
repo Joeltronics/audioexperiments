@@ -15,8 +15,8 @@ def to_pretty_str(val, num_decimals=6, point_zero=True) -> str:
 	"""
 
 	if isinstance(val, float) or isinstance(val, np.floating):
-		format = '%%.%if' % num_decimals
-		s = format % val
+		fmt = '%%.%if' % num_decimals
+		s = fmt % val
 		while s.endswith('0'):
 			s = s[:-1]
 		if s.endswith('.'):
@@ -47,6 +47,58 @@ def _test_to_pretty_str():
 
 
 _unit_tests.append(_test_to_pretty_str)
+
+
+def unit_str(val, unit='', num_decimals=3, point_zero=False):
+
+	prefixes = [
+		(1e12, None),
+		(1e9, 'G'),
+		(1e6, 'M'),
+		(1e3, 'k'),
+		(1, ''),
+		(1e-3, 'm'),
+		(1e-6, 'u'),
+		(1e-9, 'n'),
+		(1e-12, 'p'),
+	]
+
+	# Without round_val logic, 0.999999999 would return "1000 m"
+	# e.g. round_val for num_decimals=3 is 0.9995
+	round_val = 1.0 - 0.5 * (10.0 ** -num_decimals)
+
+	for d, p in prefixes:
+		if val >= (d * round_val):
+			div = d
+			prefix = p
+			break
+	else:
+		div = prefix = None
+
+	if prefix is None:
+		fmt = '%%.%ig %%s' % num_decimals
+		return fmt % (val, unit)
+	else:
+		return '%s %s%s' % (
+			to_pretty_str(val / div, num_decimals=num_decimals, point_zero=point_zero),
+			prefix,
+			unit)
+
+
+def _test_unit_str():
+	assert unit_str(3, unit='A', num_decimals=6, point_zero=True) == '3.0 A'
+	assert unit_str(3, unit='V', num_decimals=6, point_zero=False) == '3 V'
+	assert unit_str(4700, unit='ohm') == '4.7 kohm'
+	assert unit_str(.01 * 1e-6, unit='F', point_zero=False) == '10 nF'
+	assert unit_str(.01 * 1e-6, unit='F', point_zero=True) == '10.0 nF'
+	assert unit_str(2.1e13, unit='test') == '2.1e+13 test'
+	assert unit_str(0.999, unit='V', point_zero=False) == '999 mV'
+	assert unit_str(0.9999, unit='V', point_zero=False) == '1 V'
+	assert unit_str(0.9999, unit='V', num_decimals=4, point_zero=False) == '999.9 mV'
+	assert unit_str(0.99994, unit='V', num_decimals=4, point_zero=False) == '999.94 mV'
+
+
+_unit_tests.append(_test_unit_str)
 
 
 def sgn(x: Union[float, int, np.ndarray]) -> Union[float, int, np.ndarray]:
@@ -202,7 +254,7 @@ def _test_dB():
 	test(2.0, double_amp_dB)
 	test(0.5, -double_amp_dB)
 
-	assert approx_equal(to_dB(0.0001, min_dB=0), 1.)
+	assert approx_equal(0.0, to_dB(0.0001, min_dB=0))
 
 
 _unit_tests.append(_test_dB)

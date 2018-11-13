@@ -28,7 +28,7 @@ def test_is(val1, val2):
 	if val1 is val2:
 		return
 
-	raise UnitTestFailure('Expected %s is %s' % (str(val1), str(val2)))
+	raise UnitTestFailure('Expected %s is %s' % (val1, val2))
 
 
 def test_equal(val1, val2):
@@ -41,7 +41,7 @@ def test_equal(val1, val2):
 	if val1 == val2:
 		return
 
-	raise UnitTestFailure('Expected %s == %s' % (str(val1), str(val2)))
+	raise UnitTestFailure('Expected %s == %s' % (val1, val2))
 
 
 def test_approx_equal(val1, val2, eps=approx_equal.default_eps, rel=False) -> None:
@@ -56,7 +56,7 @@ def test_approx_equal(val1, val2, eps=approx_equal.default_eps, rel=False) -> No
 	if approx_equal.approx_equal(val1, val2, rel=rel, eps=eps):
 		return
 
-	raise UnitTestFailure('Expected %s ~= %s' % (str(val1, val2)))
+	raise UnitTestFailure('Expected %s ~= %s' % (val1, val2))
 
 
 def expect_return(
