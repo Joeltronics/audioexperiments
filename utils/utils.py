@@ -4,6 +4,7 @@ from typing import Tuple, Any, List
 from generation import signal_generation
 from .approx_equal import *
 from typing import Optional
+import numpy as np
 
 _unit_tests = []
 
@@ -345,6 +346,37 @@ def _test_shift_in_place():
 
 
 _unit_tests.append(_test_shift_in_place)
+
+
+def derivatives(y: np.ndarray, x: np.ndarray, n_derivs=3, discontinuity_thresh=None):
+	"""
+	Calculate several orders of derivatives using numpy.gradient
+
+	:param y:
+	:param x:
+	:param n_derivs:
+	:param discontinuity_thresh: values with abs() above this will be corrected to np.nan
+	:return: tuple, size matching n_derivs
+	"""
+
+	def fix_discontinuities(val):
+		if np.isnan(val):
+			return np.nan
+		elif discontinuity_thresh is not None and abs(val) > discontinuity_thresh:
+			return np.nan
+		else:
+			return val
+
+	fix_discontinuities = np.vectorize(fix_discontinuities)
+
+	derivs = []
+	d = y
+	for _ in range(n_derivs):
+		d = np.gradient(d, x)
+		d = fix_discontinuities(d)
+		derivs.append(d)
+
+	return tuple(derivs)
 
 
 def test(verbose=False):

@@ -17,8 +17,8 @@ def plot_fft(
 		log=True,
 		dB=True,
 		window: Union[bool, Callable]=True,
-		label=None,
-		noise_floor=0.0):
+		noise_floor=0.0,
+		**kwargs):
 	"""
 
 	:param data: time-domain data
@@ -28,8 +28,8 @@ def plot_fft(
 	:param log: plot as log-frequency
 	:param dB: display FFT in dB
 	:param window:
-	:param label: pyplot label
 	:param noise_floor: add a constant amount to FFT result, so that zero-values don't screw up dB conversion
+	:param kwargs: extra args for plt.plot() or plt.semilogx()
 	:return:
 	"""
 
@@ -60,10 +60,32 @@ def plot_fft(
 	# Make plot based on bin center instead of edge
 	f += (f[1] - f[0]) / 2.0
 
-	if log:
-		plt.semilogx(f, data_fft, fmt, label=label)
-	else:
-		plt.plot(f, data_fft, fmt, label=label)
+	plot_fn = plt.semilogx if log else plt.plot
+	plot_fn(f, data_fft, fmt, **kwargs)
+
+
+def stem_plot_freqs(freqs, data_dB, noise_floor_dB=120, set_lims=True, **kwargs):
+
+	if noise_floor_dB <= 0:
+		raise ValueError('noise_floor_dB must be positive!')
+
+	color = next(plt.gca()._get_lines.prop_cycler)['color']
+
+	# If we plot as-is, all values are negative so plt.stem() will display downward
+	# Instead, add noise floor so stem() sees [0, 120] instead of [-120, 0], and change tick labels accordingly
+
+	markerline, stemlines, baseline = plt.stem(freqs, data_dB + noise_floor_dB, **kwargs)
+
+	plt.setp(markerline, color=color)
+	plt.setp(stemlines, color=color)
+
+	max_val = max(0., np.amax(data_dB)) + noise_floor_dB
+
+	if set_lims:
+		ticks = np.arange(0., max_val + 20, step=20)
+		tick_labels = ticks - noise_floor_dB
+		plt.ylim([0, max_val])
+		plt.yticks(ticks, tick_labels)
 
 
 def plot_spectrogram(data, sample_rate, nfft=256, log=False):
