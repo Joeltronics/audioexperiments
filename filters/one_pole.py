@@ -7,6 +7,7 @@ from utils import utils
 from math import pi, exp, tan, log10
 import numpy as np
 import scipy.signal
+from typing import Optional
 
 
 # TODO: figure out why one pole filter response is way off, and tighten up test requirements
@@ -18,7 +19,22 @@ _unit_tests = []
 
 
 class BasicOnePole(FilterBase):
-	def __init__(self, wc, verbose=False, form=FilterForm.D1, gain=1.0):
+	def __init__(
+			self,
+			wc: Optional[float],
+			b0: Optional[float]=None,
+			a1: Optional[float]=None,
+			verbose=False,
+			form=FilterForm.D1,
+			gain=1.0):
+		"""
+		:param wc: Normalized cutoff frequency; must only give one of (wc, b0, a1)
+		:param b0: Must be positive; must only give one of (wc, b0, a1). If gain is given, this is b0 before gain
+		:param a1: Must be negative; must only give one of (wc, b0, a1)
+		:param verbose:
+		:param form:
+		:param gain:
+		"""
 
 		self.z1 = 0.0
 		self.na1 = 0.0  # -a1
@@ -26,10 +42,13 @@ class BasicOnePole(FilterBase):
 		self.gain = gain
 
 		self.form = form
+		self.set_freq(wc, b0, a1)
 
-		self.set_freq(wc)
 		if verbose:
-			print('Basic one pole filter: wc=%f, a1=%f, b0=%f' % (wc, -self.na1, self.b0))
+			if wc is None:
+				print('Basic one pole filter: a1=%f, b0=%f' % (-self.na1, self.b0))
+			else:
+				print('Basic one pole filter: wc=%f, a1=%f, b0=%f' % (wc, -self.na1, self.b0))
 
 	def reset(self):
 		self.z1 = 0.0
@@ -40,14 +59,35 @@ class BasicOnePole(FilterBase):
 	def set_state(self, s):
 		self.z1 = s
 
-	def set_freq(self, wc, gain=None):
-		super().throw_if_invalid_freq(wc)
+	def set_freq(self, wc: Optional[float], b0=None, a1=None, gain=None):
 
-		if gain is not None:
-			self.gain = gain
+		if sum([val is not None for val in [wc, b0, a1]]) != 1:
+			raise ValueError('Must give only one of: wc, b0, a1')
 
-		self.na1 = exp(-2.0 * pi * wc)
-		self.b0 = (1.0 - self.na1) * self.gain
+		if (b0 is not None) or (a1 is not None):
+			if b0 is not None:
+				if b0 <= 0.:
+					raise ValueError('b0 coeff must be positive (non-zero)')
+				na1 = 1.0 - b0
+
+			else:
+				if a1 >= 0.:
+					raise ValueError('a1 coeff must be negative (non-zero)')
+				na1 = -a1
+				b0 = 1.0 - na1
+
+			self.b0 = b0
+			self.na1 = na1
+			self.b0 *= self.gain
+
+		else:
+			super().throw_if_invalid_freq(wc)
+
+			if gain is not None:
+				self.gain = gain
+
+			self.na1 = exp(-2.0 * pi * wc)
+			self.b0 = (1.0 - self.na1) * self.gain
 
 		assert self.na1 > 0.0
 		assert self.b0 > 0.0
