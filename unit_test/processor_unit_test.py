@@ -96,29 +96,7 @@ class ProcessorUnitTest:
 		plt.show()
 
 	def _plot_equal_failure(self, x1, x2, x1_label=None, x2_label=None):
-		plt.figure()
-
-		plt.subplot(211)
-
-		plt.plot(x1, label=x1_label)
-		plt.plot(x2, label=x2_label)
-
-		plt.grid()
-
-		if x1_label or x2_label:
-			plt.legend()
-
-		plt.title('Unit test failure: %s' % self.name)
-
-		plt.subplot(212)
-
-		plt.plot(np.abs(x2-x1))
-		plt.grid()
-		plt.ylabel('abs error')
-
-		plt.xlabel('Sample number')
-
-		plt.show()
+		unit_test.plot_equal_failure(x1, x2, expected_label=x1_label, actual_label=x2_label, title=self.name)
 
 	@staticmethod
 	def _is_linear(f, mag_dB, rms_mag_dB) -> bool:

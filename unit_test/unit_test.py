@@ -3,6 +3,8 @@
 import traceback
 from typing import Iterable, Callable
 from utils import approx_equal
+from matplotlib import pyplot as plt
+import numpy as np
 
 
 class UnitTestFailure(Exception):
@@ -211,3 +213,33 @@ def run_unit_tests(test_funcs: Iterable[Callable], verbose=None) -> bool:
 
 
 # TODO: unit test the unit test framework...
+
+
+def plot_equal_failure(expected, actual, title=None, expected_label='expected', actual_label='actual', show=True):
+	plt.figure()
+
+	plt.subplot(211)
+
+	plt.plot(expected, label=expected_label)
+	plt.plot(actual, label=actual_label)
+
+	plt.grid()
+
+	if expected_label or actual_label:
+		plt.legend()
+
+	if title is None:
+		plt.title('Unit test failure')
+	else:
+		plt.title('Unit test failure: %s' % title)
+
+	plt.subplot(212)
+
+	plt.plot(np.abs(actual-expected))
+	plt.grid()
+	plt.ylabel('abs error')
+
+	plt.xlabel('Sample number')
+
+	if show:
+		plt.show()
