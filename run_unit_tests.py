@@ -20,7 +20,8 @@ unit_test_modules = [
 	'filters.biquad',
 	'filters.one_pole',
 	'filters.pink',
-	'filters.peak_filters'
+	'filters.peak_filters',
+	'delay_reverb.delay_line',
 ]
 
 # blatantly copied from unit_test.run_unit_tests but with "suites" added
