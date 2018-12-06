@@ -120,10 +120,16 @@ def _test_sgn():
 _unit_tests.append(_test_sgn)
 
 
-def clip(val, range: Tuple[Any, Any]):
-	if range[1] < range[0]:
+def clip(val, range: Tuple[Union[float, int, None], Union[float, int, None]]):
+	if (range[0] is not None) and (range[1] is not None) and (range[1] < range[0]):
 		raise ValueError('range[1] must be >= range[0]')
 	return np.clip(val, range[0], range[1])
+
+
+def clip_in_place(val, range: Tuple[Union[float, int, None], Union[float, int, None]]) -> None:
+	if (range[0] is not None) and (range[1] is not None) and (range[1] < range[0]):
+		raise ValueError('range[1] must be >= range[0]')
+	np.clip(val, range[0], range[1], out=val)
 
 
 # Make alias for functions where clip is a function argument name that shadows

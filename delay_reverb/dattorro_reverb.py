@@ -34,8 +34,8 @@ class DattorroReverb(ProcessorBase):
 		bandwidth = 0.9995
 		self.damping = damping
 
-		self.input = CascadedProcessors([
-			delay_line.DelayLine(self.predelay_samples),
+		self.input = CascadedProcessors(
+			[delay_line.DelayLine(self.predelay_samples)] if self.predelay_samples else [] + [
 			one_pole.BasicOnePole(wc=None, b0=bandwidth),
 			allpass.AllpassFilter(input_diffusion_1, 142),
 			allpass.AllpassFilter(input_diffusion_1, 107),
@@ -132,11 +132,10 @@ class DattorroReverb(ProcessorBase):
 
 def plot(args):
 	from matplotlib import pyplot as plt
-	from utils import plot_utils
-	from generation.signal_generation import sample_time_index
+	from analysis.reverb import analyze_reverb_ir
 
-	predelay_ms = 10.
-	time_s = 5.
+	predelay_ms = 0.
+	time_s = 3.
 
 	sample_rate = 29761
 	n_samp = round(time_s * sample_rate)
@@ -153,24 +152,7 @@ def plot(args):
 
 	print('Plotting')
 
-	t = sample_time_index(n_samp, sample_rate)
-
-	fig = plt.figure()
-	plt.subplot(2, 1, 1)
-	plt.plot(t, y)
-	plt.grid()
-	plt.xlim([0., time_s])
-	plt.title('Impulse response')
-
-	plt.subplot(2, 1, 2)
-	plot_utils.plot_spectrogram(y, sample_rate, log=True)
-	plt.xlim([0., time_s])
-	plt.xlabel('Time (s)')
-	plt.ylabel('Freq (Hz)')
-	plt.title('Spectrogram')
-
-	fig.suptitle('Dattorro "Figure 8" Reverb')
-
+	analyze_reverb_ir(y, sample_rate, title='Dattorro "Figure 8" Reverb (no modulation)')
 	plt.show()
 
 
