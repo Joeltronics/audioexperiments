@@ -44,7 +44,7 @@ class AllpassFilter(ProcessorBase):
 	def __getitem__(self, index: Union[int, float]):
 		return self.dl[index]
 
-	def process_sample(self, x: float):
+	def process_sample(self, x: float, delay_samples: Union[None, float, int]=None):
 
 		#               -----  k ------
 		#              |               |
@@ -55,7 +55,11 @@ class AllpassFilter(ProcessorBase):
 		#         ----- -k -----
 
 		k = self.k
-		zout = self.dl.peek_front()
+		if delay_samples is None:
+			zout = self.dl.peek_front()
+		else:
+			# TODO: use allpass interpolation
+			zout = self.dl[delay_samples]
 
 		zin = x - k*zout
 		y = k*zin + zout

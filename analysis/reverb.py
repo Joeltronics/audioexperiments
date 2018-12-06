@@ -139,5 +139,3 @@ def analyze_reverb_ir(ir: np.ndarray, sample_rate=48000, title: Optional[str]=No
 
 	if title:
 		fig.suptitle(title)
-
-	plt.show()
