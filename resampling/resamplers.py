@@ -5,6 +5,7 @@ import numpy as np
 from typing import Union, Optional, Iterable, List
 from filters.iir_filters import IIRFilter, ButterworthLowpass
 from filters.filter_base import FilterBase
+from filters.allpass import FractionalDelayAllpass
 
 
 class UpsamplerBase:
@@ -196,28 +197,14 @@ class PolyphaseIirAllpassUpsampler(UpsamplerBase):
 	But makes for a simple polyphase experiment
 	"""
 
-	class _IirAllpassInterpolator:
-		# https://ccrma.stanford.edu/~jos/pasp/First_Order_Allpass_Interpolation.html
-		def __init__(self, interp_coeff):
-			self.eta = interp_coeff
-			self.x1 = self.y1 = 0.0
-
-		def reset(self):
-			self.x1 = self.y1 = 0.0
-
-		def process_sample(self, x: float) -> float:
-			y = self.eta * (x - self.y1) + self.x1
-			self.x1 = x
-			self.y1 = y
-			return y
-
 	def __init__(self, ratio: int):
 		if ratio <= 1:
 			raise ValueError('Upsampler ratio must be > 1')
 
 		self.ratio = ratio
 		interp_vals = np.linspace(0.0, 1.0, self.ratio, endpoint=False)[1:]
-		self.interpolators = [self._IirAllpassInterpolator(val) for val in interp_vals]
+		# TODO: debug this - why is reversed() necessary? Bug in the polyphase logic?
+		self.interpolators = [FractionalDelayAllpass(val) for val in reversed(interp_vals)]
 
 	def reset(self) -> None:
 		for i in self.interpolators:

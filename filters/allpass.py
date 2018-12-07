@@ -4,6 +4,33 @@
 from processor import ProcessorBase
 from delay_reverb import delay_line
 from typing import Union
+import math
+
+
+class FractionalDelayAllpass(ProcessorBase):
+	# https://ccrma.stanford.edu/~jos/pasp/First_Order_Allpass_Interpolation.html
+	def __init__(self, delay_samples: float):
+		self.eta = (1.0 - delay_samples) / (1.0 + delay_samples)
+		self.z1 = 0.
+
+	def set_delay(self, delay_samples: float):
+		self.eta = (1.0 - delay_samples) / (1.0 + delay_samples)
+
+	def process_sample(self, x: float) -> float:
+		zin = x - self.eta*self.z1
+		y = self.eta*zin + self.z1
+
+		self.z1 = zin
+		return y
+
+	def reset(self):
+		self.z1 = 0.
+
+	def get_state(self):
+		return self.z1
+
+	def set_state(self, state):
+		self.z1 = state
 
 
 class AllpassFilter(ProcessorBase):
@@ -32,14 +59,26 @@ class AllpassFilter(ProcessorBase):
 
 	"""
 
-	def __init__(self, k, delay_samples: int):
+	def __init__(self, k, delay_samples: Union[float, int], allpass_interpolate=False):
 		"""
 		:param k: feedforward coefficient, and negative of feedback coefficient; may be positive or negative
 		:param delay_samples: delay time, in samples
 		"""
 		self.k = k
+
 		self.delay_samples = delay_samples
-		self.dl = delay_line.DelayLine(self.delay_samples)
+		self.delay_base = int(math.floor(self.delay_samples))
+
+		if allpass_interpolate:
+
+			delay_rem = self.delay_samples - self.delay_base
+			assert 0 <= delay_rem < 1
+
+			self.dl = delay_line.DelayLine(self.delay_base)
+			self.interpolator = FractionalDelayAllpass(delay_rem)
+		else:
+			self.dl = delay_line.DelayLine(math.ceil(self.delay_samples))
+			self.interpolator = None
 
 	def __getitem__(self, index: Union[int, float]):
 		return self.dl[index]
@@ -54,35 +93,47 @@ class AllpassFilter(ProcessorBase):
 		#        |              |
 		#         ----- -k -----
 
-		k = self.k
-		if delay_samples is None:
-			zout = self.dl.peek_front()
-		else:
-			# TODO: use allpass interpolation
-			zout = self.dl[delay_samples]
+		if delay_samples is not None:
+			self.delay_samples = delay_samples
+			self.delay_base = int(math.floor(self.delay_samples))
+			delay_rem = self.delay_samples - self.delay_base
+			assert 0 <= delay_rem < 1
 
-		zin = x - k*zout
-		y = k*zin + zout
+			if self.interpolator is not None:
+				self.interpolator.set_delay(delay_rem)
+
+		if self.interpolator is not None:
+			zout = self.dl[self.delay_base]
+			zout = self.interpolator.process_sample(zout)
+
+		else:
+			zout = self.dl[self.delay_samples]
+
+		zin = x - self.k*zout
+		y = self.k*zin + zout
 
 		self.dl.push_back(zin)
 		return y
 
 	def reset(self):
 		self.dl.reset()
+		if self.interpolator is not None:
+			self.interpolator.reset()
 
 	def get_state(self):
-		return self.dl.get_state()
+		return [self.dl.get_state(), self.interpolator.get_state() if self.interpolator else None]
 
 	def set_state(self, state):
-		self.dl.set_state(state)
+		self.dl.set_state(state[0])
+		if self.interpolator:
+			self.interpolator.set_state(state[1])
 
 
-def plot(args):
+def _plot_allpass(args, delay=4, n_samp=32):
 	from matplotlib import pyplot as plt
 	import numpy as np
 
-	n_samp = 32
-	delay_time = 4
+	d = delay
 
 	x = np.zeros(n_samp)
 	x[0] = 1.
@@ -92,7 +143,7 @@ def plot(args):
 	plt.figure()
 
 	for n, k in enumerate(ks):
-		lattice = AllpassFilter(k=k, delay_samples=delay_time)
+		lattice = AllpassFilter(k=k, delay_samples=d)
 		y = lattice.process_vector(x)
 		plt.subplot(len(ks), 1, n+1)
 
@@ -103,12 +154,99 @@ def plot(args):
 			plt.plot(y, '.-', label='Output, k=%g' % k)
 
 		if n == 0:
-			plt.title('Allpass filter (delay time %i)' % delay_time)
+			plt.title('Allpass filter (delay time %i)' % d)
 
 		plt.grid()
 		plt.legend()
 		plt.ylim([-1.1, 1.1])
 		plt.yticks([-1, -0.5, 0, 0.5, 1])
+
+
+def _plot_interp():
+	from matplotlib import pyplot as plt
+	import numpy as np
+	import scipy.signal
+
+	plt.figure()
+	plt.title('Allpass interpolator')
+
+	x = np.zeros(32)
+	x[0] = 1.
+
+	for delay in [0., 0.25, 0.5, 0.75, 1.]:
+		interp = FractionalDelayAllpass(delay)
+		y = interp.process_vector(x)
+		plt.plot(y, '.-', label='delay=%g' % delay)
+
+	plt.grid()
+	plt.legend()
+
+
+	plt.figure()
+	plt.title('Allpass interpolator')
+
+	n_samp = 128
+
+	x = np.zeros(n_samp)
+	x[n_samp // 2] = 1.
+
+	delays = [0., 0.25, 0.5, 0.75, 1., 1.25, 1.5, 2.0]
+
+	upsample_ratio = 16
+
+	t = np.arange(-(n_samp // 2), n_samp // 2)
+
+	for n, delay in enumerate(delays):
+		plt.subplot(len(delays), 1, n+1)
+
+		interp = FractionalDelayAllpass(delay)
+		y = interp.process_vector(x)
+		y_up, t_up = scipy.signal.resample(y, n_samp*upsample_ratio, t=t)
+		plt.plot(t, x, '.', label='input', zorder=1)
+		plt.plot(t, y, '.', label='delay=%g' % delay, zorder=3)
+		plt.plot(t_up, y_up, '-', label='Upsampled', zorder=2)
+		plt.xlim([-4, 4])
+
+		plt.grid()
+		plt.legend()
+
+
+def _plot_interp_allpass():
+	from matplotlib import pyplot as plt
+	import numpy as np
+
+	plt.figure()
+
+	n_samp = 512
+	d = 19.75
+	d_rounded = int(round(d))
+	x = np.zeros(n_samp)
+	x[0] = 1.
+
+	plt.title('Fractional delay allpass filter (%g samples)' % d)
+
+	lattice_basic = AllpassFilter(k=0.5, delay_samples=d_rounded)
+	lattice_lerp = AllpassFilter(k=0.5, delay_samples=d, allpass_interpolate=False)
+	lattice_ap = AllpassFilter(k=0.5, delay_samples=d, allpass_interpolate=True)
+
+	y_basic = lattice_basic.process_vector(x)
+	y_lerp = lattice_lerp.process_vector(x)
+	y_ap = lattice_ap.process_vector(x)
+
+	plt.plot(y_basic, '.-', label='Non-fractional delay (%i)' % d_rounded)
+	plt.plot(y_lerp, '.-', label='Lerp')
+	plt.plot(y_ap, '.-', label='Allpass interp')
+
+	plt.grid()
+	plt.legend()
+
+
+def plot(args):
+	from matplotlib import pyplot as plt
+
+	_plot_allpass(args)
+	_plot_interp()
+	_plot_interp_allpass()
 
 	plt.show()
 
