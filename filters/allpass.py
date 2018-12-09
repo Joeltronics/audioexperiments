@@ -2,12 +2,14 @@
 
 
 from processor import ProcessorBase
-from delay_reverb import delay_line
 from typing import Union
-import math
+
+from delay_reverb import delay_line  # Somehow this works despite the circular dependency?!
 
 
 class FractionalDelayAllpass(ProcessorBase):
+	"""Delay < 1 sample using allpass filter"""
+
 	# https://ccrma.stanford.edu/~jos/pasp/First_Order_Allpass_Interpolation.html
 	def __init__(self, delay_samples: float):
 		self.eta = (1.0 - delay_samples) / (1.0 + delay_samples)
@@ -16,11 +18,12 @@ class FractionalDelayAllpass(ProcessorBase):
 	def set_delay(self, delay_samples: float):
 		self.eta = (1.0 - delay_samples) / (1.0 + delay_samples)
 
-	def process_sample(self, x: float) -> float:
+	def process_sample(self, x: float, update_state=True) -> float:
 		zin = x - self.eta*self.z1
 		y = self.eta*zin + self.z1
 
-		self.z1 = zin
+		if update_state:
+			self.z1 = zin
 		return y
 
 	def reset(self):
@@ -66,19 +69,10 @@ class AllpassFilter(ProcessorBase):
 		"""
 		self.k = k
 
-		self.delay_samples = delay_samples
-		self.delay_base = int(math.floor(self.delay_samples))
-
 		if allpass_interpolate:
-
-			delay_rem = self.delay_samples - self.delay_base
-			assert 0 <= delay_rem < 1
-
-			self.dl = delay_line.DelayLine(self.delay_base)
-			self.interpolator = FractionalDelayAllpass(delay_rem)
+			self.dl = delay_line.FractionalAllpassDelayLine(delay_samples)
 		else:
-			self.dl = delay_line.DelayLine(math.ceil(self.delay_samples))
-			self.interpolator = None
+			self.dl = delay_line.DelayLine(delay_samples)
 
 	def __getitem__(self, index: Union[int, float]):
 		return self.dl[index]
@@ -93,21 +87,7 @@ class AllpassFilter(ProcessorBase):
 		#        |              |
 		#         ----- -k -----
 
-		if delay_samples is not None:
-			self.delay_samples = delay_samples
-			self.delay_base = int(math.floor(self.delay_samples))
-			delay_rem = self.delay_samples - self.delay_base
-			assert 0 <= delay_rem < 1
-
-			if self.interpolator is not None:
-				self.interpolator.set_delay(delay_rem)
-
-		if self.interpolator is not None:
-			zout = self.dl[self.delay_base]
-			zout = self.interpolator.process_sample(zout)
-
-		else:
-			zout = self.dl[self.delay_samples]
+		zout = self.dl.peek_front()
 
 		zin = x - self.k*zout
 		y = self.k*zin + zout
@@ -117,16 +97,12 @@ class AllpassFilter(ProcessorBase):
 
 	def reset(self):
 		self.dl.reset()
-		if self.interpolator is not None:
-			self.interpolator.reset()
 
 	def get_state(self):
-		return [self.dl.get_state(), self.interpolator.get_state() if self.interpolator else None]
+		return self.dl.get_state()
 
 	def set_state(self, state):
-		self.dl.set_state(state[0])
-		if self.interpolator:
-			self.interpolator.set_state(state[1])
+		self.dl.set_state(state)
 
 
 def _plot_allpass(args, delay=4, n_samp=32):
