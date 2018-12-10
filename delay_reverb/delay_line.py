@@ -11,6 +11,8 @@ from filters import allpass  # Somehow this works despite the circular dependenc
 
 
 class DelayLine(ProcessorBase):
+	"""Basic delay line; non-integer delay times are allowed, in which case linear interpolation will be used"""
+
 	def __init__(self, delay_samples: Union[float, int], max_delay_samples: Optional[int]=None, verbose=False):
 		"""
 		:param delay_samples: if fractional, will use linear interpolation
@@ -104,6 +106,8 @@ class DelayLine(ProcessorBase):
 
 
 class FractionalAllpassDelayLine(ProcessorBase):
+	"""Delay line that allows non-integer delays using an allpass filter"""
+
 	def __init__(self, delay_samples: Union[float, int], max_delay_samples: Optional[int]=None, verbose=False):
 
 		self.int_delay = math.floor(delay_samples)
