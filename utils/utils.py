@@ -215,6 +215,13 @@ def _test_log_lerp():
 _unit_tests.append(_test_log_lerp)
 
 
+def maybe_make_integer(val: Union[float, int]):
+	if isinstance(val, float) and val.is_integer():
+		return int(val)
+	else:
+		return val
+
+
 # Wrap value to range [-0.5, 0.5)
 def wrap05(val):
 	return (val + 0.5) % 1.0 - 0.5
