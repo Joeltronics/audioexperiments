@@ -12,10 +12,14 @@ parser.add_argument('module')
 parser.add_argument('-t', '--test', action='store_true', help="run module's unit tests")
 parser.add_argument('-p', '--plot', action='store_true', help="run module's plot() function")
 parser.add_argument('-v', '--verbose', action='store_true', help="verbose unit tests")
+parser.add_argument('--mh', action='store_true', help="run module's --help")
 
 args, remaining_args = parser.parse_known_args()
 
 mod = importlib.import_module(args.module)
+
+if args.mh:
+	remaining_args.append('--help')
 
 if args.test:
 	if hasattr(mod, 'test'):
