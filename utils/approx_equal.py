@@ -113,35 +113,35 @@ _unit_tests = []
 def _test_scalar():
 	from unit_test import unit_test
 
-	def test(*args, rel=False, eps=default_eps):
+	def _test(*args, rel=False, eps=default_eps):
 		eq1 = approx_equal_scalar(*args, rel=rel, eps=eps)
 		eq2 = approx_equal(*args, rel=rel, eps=eps)
 		if eq1 != eq2:
 			raise AssertionError('approx_equal and approx_equal_scalar returned different')
 		return eq1
 
-	assert test(1, 1.0000001)
-	assert not test(1, 1.001)
-	assert test(1, 1.1, eps=0.11)
-	assert test(1, 1.0000001, rel=True)
-	assert test(0.33333333333, 1.0 / 3.0)
-	assert test(0.33333333333, 1.0 / 3.0, rel=True)
+	assert _test(1, 1.0000001)
+	assert not _test(1, 1.001)
+	assert _test(1, 1.1, eps=0.11)
+	assert _test(1, 1.0000001, rel=True)
+	assert _test(0.33333333333, 1.0 / 3.0)
+	assert _test(0.33333333333, 1.0 / 3.0, rel=True)
 
-	assert test(1e-8, 1e-9, rel=False)
-	assert not test(1e-8, 1e-9, rel=True)
+	assert _test(1e-8, 1e-9, rel=False)
+	assert not _test(1e-8, 1e-9, rel=True)
 
-	assert test(-1e-8, -1e-9, rel=False)
-	assert not test(-1e-8, -1e-9, rel=True)
+	assert _test(-1e-8, -1e-9, rel=False)
+	assert not _test(-1e-8, -1e-9, rel=True)
 
-	assert test(-0.0000001, 0.0000001, rel=False)
-	assert not test(-0.0000001, 0.0000001, rel=True)
+	assert _test(-0.0000001, 0.0000001, rel=False)
+	assert not _test(-0.0000001, 0.0000001, rel=True)
 
-	assert test(1, 0.9999999, 1.0000001)
-	assert not test(0.9, 1.0, 1.1, 1.2, eps=0.2)
+	assert _test(1, 0.9999999, 1.0000001)
+	assert not _test(0.9, 1.0, 1.1, 1.2, eps=0.2)
 
-	assert test(-1e-9, 1e-9, 0.0)
+	assert _test(-1e-9, 1e-9, 0.0)
 
-	unit_test.test_threw(test, -1e-9, 1e-9, 0.0, rel=True)
+	unit_test.test_threw(_test, -1e-9, 1e-9, 0.0, rel=True)
 
 
 _unit_tests.append(_test_scalar)

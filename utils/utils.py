@@ -255,7 +255,7 @@ def to_dB(val_lin, min_dB: Optional[float]=None):
 
 
 def _test_dB():
-	def test(lin, dB):
+	def _test(lin, dB):
 		assert approx_equal(lin, from_dB(dB))
 		assert approx_equal(dB, to_dB(lin))
 		assert approx_equal(lin, from_dB(to_dB(lin)))
@@ -264,9 +264,9 @@ def _test_dB():
 	double_amp_dB = 20.0 * math.log10(2.0)
 	assert approx_equal(double_amp_dB, 6.02, eps=0.005)  # Test the unit test logic itself
 
-	test(1.0, 0.0)
-	test(2.0, double_amp_dB)
-	test(0.5, -double_amp_dB)
+	_test(1.0, 0.0)
+	_test(2.0, double_amp_dB)
+	_test(0.5, -double_amp_dB)
 
 	assert approx_equal(0.0, to_dB(0.0001, min_dB=0))
 

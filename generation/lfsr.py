@@ -367,22 +367,39 @@ def analyze_lfsr(lfsr: LFSR):
 	print('')
 
 
-def test(verbose=False, max_len=25):
+def test(verbose=False, long=False, max_len=None):
+	from unit_test import unit_test
 
-	assert find_lfsr_period(NESLFSR(short=True, verbose=verbose)) == 93
-	assert find_lfsr_period(NESLFSR(extra_short=True, verbose=verbose)) == 31
-	assert find_lfsr_period(NESLFSR(short=False, verbose=verbose)) == 32767
+	if max_len is None:
+		max_len = 25 if long else 13
 
-	assert find_lfsr_period(GBLFSR(short=True, verbose=verbose)) == 127
-	assert find_lfsr_period(GBLFSR(short=False, verbose=verbose)) == 32767
+	tests = []
+
+	# Use lambdas so that LFSRs aren't constructed until running the test
+	tests += [
+		lambda: unit_test.test_equal(find_lfsr_period(NESLFSR(short=True, verbose=verbose)), 93),
+		lambda: unit_test.test_equal(find_lfsr_period(NESLFSR(extra_short=True, verbose=verbose)), 31),
+		lambda: unit_test.test_equal(find_lfsr_period(NESLFSR(short=False, verbose=verbose)), 32767),
+
+		lambda: unit_test.test_equal(find_lfsr_period(GBLFSR(short=True, verbose=verbose)), 127),
+		lambda: unit_test.test_equal(find_lfsr_period(GBLFSR(short=False, verbose=verbose)), 32767),
+	]
+
+	def _test_lfsr_len(n):
+		lfsr = get_maximal_lfsr(n, verbose=verbose)
+		return is_maximal_lfsr(lfsr)
+
+	def _test_alt_lfsr_len(n):
+		lfsr = get_maximal_lfsr(n, verbose=verbose, alt=True)
+		assert lfsr is not None
+		return is_maximal_lfsr(lfsr)
 
 	for n in range(2, max_len + 1):
-		lfsr = get_maximal_lfsr(n, verbose=verbose)
-		assert is_maximal_lfsr(lfsr)
+		tests.append(lambda: _test_lfsr_len(n))
+		if get_maximal_lfsr(n, verbose=False, alt=True) is not None:
+			tests.append(lambda: _test_alt_lfsr_len(n))
 
-		alt_lfsr = get_maximal_lfsr(n, verbose=verbose, alt=True)
-		if alt_lfsr is not None:
-			assert is_maximal_lfsr(alt_lfsr)
+	return unit_test.run_unit_tests(tests, verbose=verbose)
 
 
 def main(args):

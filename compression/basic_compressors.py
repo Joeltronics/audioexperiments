@@ -272,10 +272,6 @@ class FeedbackCompressor(ProcessorBase):
 		return y, debug_dict
 
 
-def test(verbose=False):
-	pass
-
-
 def _plot_audio(ratio, knee_dB, attack_ms=30., release_ms=100., freq=1000, sample_rate=24000, n_samp=48000):
 	from matplotlib import pyplot as plt
 	from generation.signal_generation import gen_sine, sample_time_index

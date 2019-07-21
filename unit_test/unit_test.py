@@ -7,6 +7,9 @@ from matplotlib import pyplot as plt
 import numpy as np
 
 
+# TODO: just use pytest for this
+
+
 class UnitTestFailure(Exception):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
