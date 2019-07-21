@@ -7,7 +7,26 @@ import os.path
 from typing import Tuple
 
 
-def import_wavfile(filename) -> Tuple[np.ndarray, int]:
+def _sum_to_mono(filename:str, data: np.ndarray, warn_if_mono_sum=True) -> np.ndarray:
+
+	if len(data.shape) == 1:
+		return data
+
+	n_channels = data.shape[1]
+
+	if n_channels == 1:
+		return data[:, 0]
+
+	if warn_if_mono_sum:
+		if n_channels == 2:
+			print('%s is stereo; will sum to mono' % filename)
+		else:
+			print('%s has %i channels; will sum to mono' % (filename, n_channels))
+
+	return data.sum(axis=1) / n_channels
+
+
+def import_wavfile(filename, sum_to_mono=False, warn_if_mono_sum=True) -> Tuple[np.ndarray, int]:
 	"""Import wav file and normalize to float values in range [-1, 1)
 
 	:param filename:
@@ -32,6 +51,10 @@ def import_wavfile(filename) -> Tuple[np.ndarray, int]:
 		pass
 	else:
 		raise ValueError('Unknown data type: %s' % data.dtype)
+
+	if sum_to_mono:
+		data = _sum_to_mono(filename, data, warn_if_mono_sum=warn_if_mono_sum)
+		assert len(data.shape) == 1
 
 	return data, sample_rate
 
