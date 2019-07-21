@@ -161,7 +161,7 @@ class LinearCascadeFilter(FilterBase):
 def determine_res_q():
 	# Empirically determine res-Q mapping
 
-	from utils import freq_response
+	from analysis import freq_response
 
 	wc = 1000. / 48000.
 
@@ -173,7 +173,8 @@ def determine_res_q():
 	for r in [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.8, 0.85, 0.90, 0.95, 0.96, 0.97, 0.98, 0.985, 0.99, 0.995]:
 		filt = LinearCascadeFilter(wc=wc, res=r)
 		# Q is equal to magnitude response at cutoff frequency (linear, not dB)
-		Q, = freq_response.get_freq_response(filt, freqs=[1000.], sample_rate=48000., n_samp=48000, mag=True, rms=False, phase=False, group_delay=False)
+		Q = freq_response.get_sine_sweep_freq_response(
+			filt, freqs=[1000.], sample_rate=48000., n_samp=48000, mag=True, rms=False, phase=False, group_delay=False).mag
 		print('%.3f  %10.6f  %10.6f  %10.6f   %.3f' % (
 			r, 1.0 / (1.0 - r), Q, Q + 1.0, (Q + 1.0)*(1.0 - r)))
 	print('=' * char_width)

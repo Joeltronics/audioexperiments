@@ -488,7 +488,7 @@ def _plot_downsampling(n_samp=4096):
 	sample_rate = 192000.0
 	ratio = 4
 
-	# Very similar to freq_response.get_freq_response
+	# Very similar to freq_response.get_sine_sweep_freq_response
 
 	freqs = [
 		10.0,

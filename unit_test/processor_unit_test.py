@@ -138,7 +138,7 @@ class ProcessorUnitTest:
 
 		check_phase = self.expected_phase_response_degrees is not None
 
-		freq_resp_ret = freq_response.get_freq_response(
+		freq_resp_ret = freq_response.get_sine_sweep_freq_response(
 			filt,
 			self.freqs_to_test,
 			sample_rate=1.0,
@@ -148,10 +148,10 @@ class ProcessorUnitTest:
 			group_delay=False,
 			amplitude=self.amplitude)
 
-		freq_resp_mag = utils.to_dB(freq_resp_ret[0] if isinstance(freq_resp_ret, tuple) else freq_resp_ret)
+		freq_resp_mag = utils.to_dB(freq_resp_ret.mag)
 
 		def test_linear():
-			freq_resp_rms = utils.to_dB(freq_resp_ret[1] * math.sqrt(2.0))
+			freq_resp_rms = utils.to_dB(freq_resp_ret.rms * math.sqrt(2.0))
 			for f, f_mag, f_rms in zip(self.freqs_to_test, freq_resp_mag, freq_resp_rms):
 				if not self._is_linear(f, f_mag, f_rms):
 					raise UnitTestFailure(
@@ -168,7 +168,7 @@ class ProcessorUnitTest:
 						(self.name, f, utils.to_pretty_str(expected[0]), utils.to_pretty_str(expected[1]), actual))
 
 		def test_phase():
-			freq_resp_phase_deg = np.rad2deg(freq_resp_ret[-1])
+			freq_resp_phase_deg = np.rad2deg(freq_resp_ret.phase)
 			for f, actual, expected in zip(self.freqs_to_test, freq_resp_phase_deg, self.expected_phase_response_degrees):
 				if not self._test_resp(actual, expected, phase=True):
 					if plot_on_failure:

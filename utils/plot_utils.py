@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 from typing import Union, Optional, Iterable, List, Callable, Tuple
 
 from utils import utils
-from analysis.freq_response import get_freq_response
+from analysis.freq_response import get_sine_sweep_freq_response
 
 
 def plot_fft(
@@ -224,7 +224,11 @@ def plot_freq_resp(
 
 			print('Processing %s' % type(p).__name__)
 
-			amps, phases, group_delay = get_freq_response(p, freqs, sample_rate, n_samp=n_samp, group_delay=True)
+			freq_response = get_sine_sweep_freq_response(p, freqs, sample_rate, n_samp=n_samp, group_delay=True)
+			amps = freq_response.mag
+			phases = freq_response.phase
+			group_delay = freq_response.group_delay
+			assert not any([val is None for val in [amps, phases, group_delay]])
 
 			amps = utils.to_dB(amps)
 
