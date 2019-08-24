@@ -22,7 +22,6 @@ def _get_func_str(func, *args, **kwargs):
 	return '%s(%s)' % (func.__name__, args_str)
 
 
-
 def test_is(val1, val2):
 	"""
 
@@ -41,7 +40,7 @@ def test_equal(val1, val2):
 
 	:param val1:
 	:param val2:
-	:raises: AssertionError if test failed
+	:raises: UnitTestFailure if test failed
 	"""
 	if val1 == val2:
 		return
@@ -49,16 +48,15 @@ def test_equal(val1, val2):
 	raise UnitTestFailure('Expected %s == %s' % (val1, val2))
 
 
-def test_approx_equal(val1, val2, eps=approx_equal.default_eps, rel=False) -> None:
+def test_approx_equal(val1, val2, **kwargs) -> None:
 	"""
 
-	:param expected:
-	:param actual:
-	:param eps:
-	:param rel:
-	:raises: AssertionError if test failed
+	:param val1:
+	:param val2:
+	:param kwargs: args for approx_equal
+	:raises: UnitTestFailure if test failed
 	"""
-	if approx_equal.approx_equal(val1, val2, rel=rel, eps=eps):
+	if approx_equal.approx_equal(val1, val2, **kwargs):
 		return
 
 	raise UnitTestFailure('Expected %s ~= %s' % (val1, val2))
@@ -69,7 +67,7 @@ def expect_return(
 		func: Callable,
 		approx: bool=True,
 		rel: bool=False,
-		eps: float=approx_equal.default_eps,
+		eps: float=approx_equal.DEFAULT_EPS,
 		*args,
 		**kwargs) -> None:
 	"""
@@ -81,7 +79,7 @@ def expect_return(
 	:param eps: if approx, eps value for approx_equal
 	:param args: args for function
 	:param kwargs: kwargs for function
-	:raises: AssertionError if test failed
+	:raises: UnitTestFailure if test failed
 	"""
 
 	actual = func(*args, **kwargs)
@@ -213,9 +211,6 @@ def run_unit_tests(test_funcs: Iterable[Callable], verbose=None) -> bool:
 			print('Test passed!')
 
 		return True
-
-
-# TODO: unit test the unit test framework...
 
 
 def plot_equal_failure(expected, actual, title=None, expected_label='expected', actual_label='actual', show=True):
