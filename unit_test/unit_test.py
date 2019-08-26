@@ -22,6 +22,28 @@ def _get_func_str(func, *args, **kwargs):
 	return '%s(%s)' % (func.__name__, args_str)
 
 
+_unit_test_logs = []
+
+
+def log(text):
+	"""
+	Log text that will only be printed if unit test fails
+	"""
+	global _unit_test_logs
+	_unit_test_logs.append(text)
+
+
+def _print_logs():
+	global _unit_test_logs
+	for log in _unit_test_logs:
+		print(log)
+
+
+def _clear_logs():
+	global _unit_test_logs
+	_unit_test_logs = []
+
+
 def test_is(val1, val2):
 	"""
 
@@ -139,6 +161,8 @@ def run_unit_test(test_func: Callable, verbose=None) -> bool:
 	:return: True on success, False if an exception was thrown
 	"""
 
+	_clear_logs()
+
 	if hasattr(test_func, "name"):
 		test_name = test_func.name
 	elif hasattr(test_func, "__name__"):
@@ -174,6 +198,9 @@ def run_unit_test(test_func: Callable, verbose=None) -> bool:
 	except Exception as ex:
 		print('Test "%s" failed - threw %s' % (test_name, type(ex).__name__))
 		traceback.print_exc()
+
+	if not success:
+		_print_logs()
 
 	if verbose:
 		print('')
