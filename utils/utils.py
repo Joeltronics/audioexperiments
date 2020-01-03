@@ -9,6 +9,24 @@ import numpy as np
 _unit_tests = []
 
 
+def is_even(value: int):
+	return value % 2 == 0
+
+
+def is_odd(value: int):
+	return value % 2 != 0
+
+
+def _test_is_even_odd():
+	for val in [1, 3, -1, -10001]:
+		assert is_odd(val) and not is_even(val)
+	for val in [0, 2, -2, 10, -10000]:
+		assert is_even(val) and not is_odd(val)
+
+
+_unit_tests.append(_test_is_even_odd)
+
+
 def to_pretty_str(val, num_decimals=6, point_zero=True) -> str:
 	"""Convert float into nicely formatted string
 
