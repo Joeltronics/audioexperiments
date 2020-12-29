@@ -12,7 +12,9 @@ from utils import utils
 First, something indented with tabs so that the block diagrams
 	below don't make the IDE think the file uses spaces
 
-Idea & derivations:
+Ideas & derivations:
+
+===== Original idea =====
 
 The idea is to plot the frequency response of a comb filter where the feedback time is not the
 same as the delay time, like with an MN3011-based flanger like the ADA STD-1, or a multi-tap tape
@@ -163,52 +165,102 @@ x[n] ---+                         [ mix ] -----> y[n]
 
 This is the same as the shorter-feedback case!
 
+===== New idea =====
+
+Same as above, but both the feedback & mix can be any arbitrary mix of delays 1 & 2
+
+              +-------------------------+
+              |                         |
+              |               [                  ]
+              |               [        mix       ]
+              |               [                  ]
+              |                 A              A
+              V                 |              |
+        +--> (+) ---> [ dl ] ---+---> [ dl ] --+
+        |                       |              |
+        |                       |              +---> [     ]
+        |                       |                    [     ]
+x[n] ---+                       +------------------> [ mix ] -----> y[n]
+        |                                            [     ]
+        +------------------------------------------> [     ]
+
+(fb control would be unnecessary due to fb mix)
+
+Once again, can split:
+
+              +----------------------------+
+              |                            |
+              |                  [                  ]
+              |                  [        mix       ]
+              |                  [                  ]
+              |                    A              A
+              |                    |              |
+              V     +--> [ dl ] ---+              |
+        +--> (+) ---+              |              |
+        |           +------------- | --> [ dl ] --+
+        |                          |              |
+        |                          |              +---> [     ]
+        |                          |                    [     ]
+x[n] ---+                          +------------------> [ mix ] -----> y[n]
+        |                                               [     ]
+        +---------------------------------------------> [     ]
+
+Essentially this is just 2 mixers, 1 at the input of the delay lines, and 1 at the output
 """
 
 
 def parse_args(args):
+
 	parser = argparse.ArgumentParser()
 
-	parser.add_argument(
-		'-d', '--delay', dest='delay_time', metavar='MS',
-		type=float, default=1,
-		help='Delay (ms); default 1; will be rounded to integer number of samples',
-	)
 	parser.add_argument(
 		'-s', '--sample-rate', metavar='HZ', dest='sample_rate',
 		type=int, default=48000,
 		help='Sample Rate (Hz); default 48000',
 	)
 
+	grp = parser.add_argument_group('delay')
+
+	grp.add_argument(
+		'--d1', dest='delay_1_time', metavar='MS',
+		type=float, default=1,
+		help='Delay 1 (ms); default 1; will be rounded to integer number of samples',
+	)
+	grp.add_argument(
+		'--d2', dest='delay_2_time', metavar='MS',
+		type=float, default=1,
+		help='Delay 2 (ms); default 1; will be rounded to integer number of samples',
+	)
+
 	grp = parser.add_argument_group('mix')
 
 	grp.add_argument(
-		'-m', '--mix', dest='mix',
-		type=float, default=None,
-		help='Mix (sets both --wet and --dry); can be negative; default 0.5',
-	)
-	grp.add_argument(
-		'--wet', dest='wet_mix',
-		type=float, default=None,
-		help='Wet mix; can be negative; default 0.5',
-	)
-	grp.add_argument(
-		'--dry', dest='dry_mix',
-		type=float, default=None,
+		'--dry', metavar='MIX', dest='dry_mix',
+		type=float, default=0.5,
 		help='Dry mix; can be negative; default 0.5',
+	)
+	grp.add_argument(
+		'--mix1', metavar='MIX', dest='wet_1_mix',
+		type=float, default=0.25,
+		help='Delay 1 mix; can be negative; default 0.25',
+	)
+	grp.add_argument(
+		'--mix2', metavar='MIX', dest='wet_2_mix',
+		type=float, default=0.25,
+		help='Delay 2 mix; can be negative; default 0.25',
 	)
 
 	grp = parser.add_argument_group('Feedback')
 
 	grp.add_argument(
-		'-f', '--feedback', metavar='FB', dest='feedback',
+		'--fb1', metavar='FB', dest='feedback_1',
 		type=float, default=0.0,
-		help='Feedback amount; valid range (-1 < FB < 1)',
+		help='Feedback 1 amount; default 0; valid range (-1 < FB < 1)',
 	)
 	grp.add_argument(
-		'--fdelay', metavar='MS', dest='feedback_delay_time',
-		type=float, default=None,
-		help='Feedback delay time (ms); default same as delay time; will be rounded to integer number of samples',
+		'--fb2', metavar='FB', dest='feedback_2',
+		type=float, default=0.0,
+		help='Feedback 2 amount; default 0; valid range (-1 < FB < 1)',
 	)
 
 	grp = parser.add_argument_group('Analysis')
@@ -219,12 +271,12 @@ def parse_args(args):
 		help='Epsilon value - stop processing once level below this; default -120 dB'
 	)
 	grp.add_argument(
-		'--min-len', metavar='SAMPLES', dest='min_len',
+		'--minlen', metavar='SAMPLES', dest='min_len',
 		type=int, default=1024,
 		help='Minimum number of samples to process; default 1024',
 	)
 	grp.add_argument(
-		'--max-len', metavar='SAMPLES', dest='max_len',
+		'--maxlen', metavar='SAMPLES', dest='max_len',
 		type=int, default=65536,
 		help='Maximum number of samples to process; default 65536',
 	)
@@ -236,29 +288,16 @@ def parse_args(args):
 
 	args = parser.parse_args(args)
 
-	if not (-1.0 < args.feedback < 1.0):
-		raise ValueError('Feedback must be in range (-1 < fb < 1)')
+	if not (-1.0 < args.feedback_1 < 1.0 and -1.0 < args.feedback_2 < 1.0):
+		raise ValueError('Feedbacks must each be in range (-1 < fb < 1)')
 
-	if args.mix is not None:
-
-		if (args.wet_mix is not None) or (args.dry_mix is not None):
-			raise ValueError('Cannot give --dry or --wet if also giving -m/--mix')
-
-		args.wet_mix = args.mix
-		args.dry_mix = 1.0 - abs(args.wet_mix)
-
-	else:
-
-		if args.wet_mix is None:
-			args.wet_mix = 0.5
-		
-		if args.dry_mix is None:
-			args.dry_mix = 0.5
+	if not (-1.0 < (args.feedback_1 + args.feedback_2) < 1.0):
+		raise ValueError('Sum of feedback 1 + 2 must be in range (-1 < fb < 1)')
 
 	return args
 
 
-def determine_buffer_size(delay_time: int, fb: float, wet_mix=1.0, eps_dB=-120) -> int:
+def determine_buffer_size(delay_time: int, fb: float, max_len: int, wet_mix=1.0, eps_dB=-120) -> int:
 
 	# TODO: Is the +1 actually necessary?
 
@@ -272,87 +311,58 @@ def determine_buffer_size(delay_time: int, fb: float, wet_mix=1.0, eps_dB=-120) 
 
 	eps = utils.from_dB(eps_dB)
 
-	# TODO: solve this properly (not iteratively)
+	# TODO: solve this properly (not iteratively), it's just exponential decay
 	num_periods = 1
 	level = abs(wet_mix)
 	while level > eps:
 		level *= fb
 		num_periods += 1
 
+		if (num_periods * delay_time) + 1 > max_len:
+			return max_len
+
 	return num_periods * delay_time + 1
 
 
-def process(x: np.ndarray, dry_mix, wet_mix, fb, delay_line, fb_delay_line=None) -> np.ndarray:
-
-	if not wet_mix:
+def process(x: np.ndarray, dry_mix, wet_1_mix, wet_2_mix, fb_1, fb_2, delay_line_1, delay_line_2) -> np.ndarray:
+	if not (wet_1_mix or wet_2_mix):
 		return x
 
 	y = np.zeros_like(x)
 
+	for n in range(len(y)):
+		"""
+		              +----------------------------+
+		              |                            |
+		              |                  [                  ]
+		              |                  [        mix       ]
+		              |                  [                  ]
+		              |                    A              A
+		              |                    |              |
+		              V     +--> [ dl ] ---+              |
+		        +--> (+) ---+              |              |
+		        |           +------------- | --> [ dl ] --+
+		        |                          |              |
+		        |                          |              +---> [     ]
+		        |                          |                    [     ]
+		x[n] ---+                          +------------------> [ mix ] -----> y[n]
+		        |                                               [     ]
+		        +---------------------------------------------> [     ]
+		"""
 
-	if fb_delay_line is None:
-		
-		# Simple case - just 1 delay line
+		xn = x[n]
 
-		for n in range(len(y)):
+		dl1 = delay_line_1.peek_front()
+		dl2 = delay_line_2.peek_front()
 
-			"""
-			                       fb
-			              +------- (x) <----+
-			              |                 |
-			              V                 |
-			        +--> (x) ---> [ dl ] ---+---> [     ]
-			        |                             [     ]
-			x[n] ---+                             [ mix ] ---> y[n]
-			        |                             [     ]
-			        +---------------------------> [     ]
-			"""
+		delay_in = xn + (dl1 * fb_1) + (dl2 * fb_2)
 
-			xn = x[n]
+		delay_line_1.push_back(delay_in)
+		delay_line_2.push_back(delay_in)
 
-			wet = delay_line.peek_front()
+		yn = (xn * dry_mix) + (dl1 * wet_1_mix) + (dl2 * wet_2_mix)
 
-			delay_in = xn + (wet * fb)
-			delay_line.push_back(delay_in)
-
-			yn = xn * dry_mix + wet * wet_mix
-
-			y[n] = yn
-
-	else:
-
-		# Complex case - separate feedback delay line
-
-		for n in range(len(y)):
-
-			"""
-			                           fb
-			              +----------- (x) <----+
-			              |                     |
-			              |                     |
-			              |     +---> [ dl ] ---+
-			              V     |
-			        +--> (+) ---+
-			        |           |
-			        |           +---> [ dl ] ---> [     ]
-			        |                             [     ]
-			x[n] ---+                             [ mix ] ---> y[n]
-			        |                             [     ]
-			        +---------------------------> [     ]
-			"""
-
-			xn = x[n]
-
-			wet = delay_line.peek_front()
-
-			fb_out = fb_delay_line.peek_front()
-			delay_in = xn + (fb_out * fb)
-			delay_line.push_back(delay_in)
-			fb_delay_line.push_back(delay_in)
-
-			yn = xn * dry_mix + wet * wet_mix
-
-			y[n] = yn
+		y[n] = yn
 
 	return y
 
@@ -432,42 +442,42 @@ def do_plot(x: np.ndarray, y: np.ndarray, sample_rate: int, show_phase=False):
 
 
 def plot(args):
+
 	args = parse_args(args)
 
-	delay_samples_float = (args.delay_time / 1000.0) * args.sample_rate
-	delay_samples = int(round(delay_samples_float))
+	delay_1_samples_float = (args.delay_1_time / 1000.0) * args.sample_rate
+	delay_1_samples = int(round(delay_1_samples_float))
 
-	print('Delay: %g ms @ %g kHz = %g samples, fundamental %g Hz' % (
-		args.delay_time,
+	delay_2_samples_float = (args.delay_2_time / 1000.0) * args.sample_rate
+	delay_2_samples = int(round(delay_2_samples_float))
+
+	print('Delay 1: %g ms @ %g kHz = %g samples, fundamental %g Hz' % (
+		args.delay_1_time,
 		args.sample_rate,
-		delay_samples_float,
-		1000.0 / args.delay_time,
+		delay_1_samples_float,
+		1000.0 / args.delay_1_time,
 	))
 
-	if delay_samples_float != delay_samples:
-		print('Rounding to %i samples, fundamental %g Hz' % (delay_samples, args.sample_rate / delay_samples))
+	if delay_1_samples_float != delay_1_samples:
+		print('Rounding to %i samples, fundamental %g Hz' % (delay_1_samples, args.sample_rate / delay_1_samples))
 
-	dl = DelayLine(delay_samples)
+	print('Delay 2: %g ms @ %g kHz = %g samples, fundamental %g Hz' % (
+		args.delay_2_time,
+		args.sample_rate,
+		delay_2_samples_float,
+		1000.0 / args.delay_2_time,
+	))
 
-	max_delay_time = delay_samples
+	if delay_2_samples_float != delay_2_samples:
+		print('Rounding to %i samples, fundamental %g Hz' % (delay_2_samples, args.sample_rate / delay_2_samples))
 
-	fbdl = None
-	if args.feedback_delay_time:
+	dl1 = DelayLine(delay_1_samples)
+	dl2 = DelayLine(delay_2_samples)
 
-		feedback_delay_samples_float = (args.feedback_delay_time / 1000.0) * args.sample_rate
-		feedback_delay_samples = int(round(feedback_delay_samples_float))
+	max_delay_time = max(delay_1_samples, delay_2_samples)
 
-		print('Feedback delay: %g ms = %i samples, fundamental %g Hz' % (
-			args.feedback_delay_time,
-			feedback_delay_samples,
-			args.sample_rate / feedback_delay_samples,
-		))
-
-		fbdl = DelayLine(feedback_delay_samples)
-
-		max_delay_time = max(delay_samples, feedback_delay_samples)
-
-	ideal_buffer_size = determine_buffer_size(max_delay_time, args.feedback, wet_mix=args.wet_mix, eps_dB=args.eps_dB)
+	# FIXME: this won't work as expected with dual feedback
+	ideal_buffer_size = determine_buffer_size(max_delay_time, (args.feedback_1 + args.feedback_2), max_len=args.max_len, wet_mix=(args.wet_1_mix + args.wet_2_mix), eps_dB=args.eps_dB)
 
 	# Pad to power of 2
 	actual_buffer_size = utils.clip(ideal_buffer_size, (args.min_len, args.max_len))
@@ -481,10 +491,8 @@ def plot(args):
 	x = np.zeros(actual_buffer_size)
 	x[0] = 1.0
 
-	print('Dry mix: %g, wet mix: %g, feedback: %g' % (args.dry_mix, args.wet_mix, args.feedback))
-
 	print('Processing')
-	y = process(x, delay_line=dl, fb_delay_line=fbdl, dry_mix=args.dry_mix, wet_mix=args.wet_mix, fb=args.feedback)
+	y = process(x, delay_line_1=dl1, delay_line_2=dl2, dry_mix=args.dry_mix, wet_1_mix=args.wet_1_mix, wet_2_mix=args.wet_2_mix, fb_1=args.feedback_1, fb_2=args.feedback_2)
 
 	print('Plotting')
 	do_plot(x, y, sample_rate=args.sample_rate, show_phase=args.show_phase)
