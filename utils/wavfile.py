@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 
 
+"""
+Wrappers for scipy.io.wavfile
+"""
+
+
 import numpy as np
 import scipy.io.wavfile
 import os.path

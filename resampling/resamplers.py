@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 
+"""
+Testing various resampling algorithms
+Just a basic experiment, not really very high quality
+"""
+
 
 import numpy as np
 from typing import Union, Optional, Iterable, List

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+"""
+Simulates a tanh function with negative feedback
+"""
+
 
 import numpy as np
 from scipy import integrate
@@ -35,6 +39,12 @@ y = f(x) cannot be solved analytically; the inverse of this equation, x = f(y), 
 
 The goal of this module is to provide a numerical solution to y = f(x)
 """
+
+"""
+TODOs:
+* Use functions in solvers.solvers
+"""
+
 
 
 def _clip1(x):

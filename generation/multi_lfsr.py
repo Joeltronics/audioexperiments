@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+"""
+Plot cascaded LFSRs, like some Atari 2600 TIA waveforms
+"""
+
 from .lfsr import get_maximal_lfsr
 from utils import wavfile
 

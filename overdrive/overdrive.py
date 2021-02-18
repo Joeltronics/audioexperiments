@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+"""
+Various overdrive functions
+"""
+
 
 import numpy as np
 from typing import Union
@@ -251,13 +255,20 @@ def main(args):
 	asym_clip = np.vectorize(lambda x: clip(x + 0.25))
 	asym_hardness = np.vectorize(lambda x: clip(x) if x < 0 else tanh(x))
 
-	plot_distortion(clip, title='clip')
-	plot_distortion(tanh, title='tanh')
-	plot_distortion(atan, title='atan')
-	plot_distortion(sigmoid, title='sigmoid')
-	plot_distortion(ln_drive, title='ln_drive')
-	plot_distortion(sqrt_drive, title='sqrt_drive')
-	plot_distortion(three_halfs_drive, title='3/2')
-	plot_distortion(asym_clip, title='Biased clip')
-	plot_distortion(asym_hardness, title='Asymmetric hardness')
+	funcs = [
+		(clip, 'clip'),
+		(tanh, 'tanh'),
+		(atan, 'atan'),
+		(sigmoid, 'sigmoid'),
+		(ln_drive, 'ln_drive'),
+		(sqrt_drive, 'sqrt_drive'),
+		(three_halfs_drive, '3/2'),
+		(asym_clip, 'Biased clip'),
+		(asym_hardness, 'Asymmetric hardness'),
+	]
+
+	for func, name in funcs:
+		print('Processing %s' % name)
+		plot_distortion(func, title=name)
+
 	plt.show()

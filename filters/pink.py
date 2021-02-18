@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+"""
+"Pinking" filters, i.e. filters with a slope of -3 dB/octave, for generating pink noise from white noise
+"""
+
 from .filter_base import IIRFilterBase
 import numpy as np
 from utils import utils

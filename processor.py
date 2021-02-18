@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+"""
+Generic interface for audio processor class
+"""
+
 import numpy as np
 from typing import Any, Union, Tuple, List
 

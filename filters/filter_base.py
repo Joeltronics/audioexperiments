@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 
+"""
+Base classes for filters with arbitrary coefficients
+
+Note: does not break down filters into cascaded second-order sections!
+So may not be numerically stable for higher orders.
+"""
+
 from enum import Enum, unique
 import scipy.signal
 

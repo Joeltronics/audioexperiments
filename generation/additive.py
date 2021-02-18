@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
 
+"""
+Generating various alias-free waveforms through additive synthesis
+
+For answering questions like "what would a triangle wave with even harmonics look like?"
+Ok, yeah, you could also get this by integrating a sawtooth.
+But what would a triangle wave except with _only_ even harmonics look like?
+
+This implementation is not really meant to be CPU efficient
+"""
+
 
 from .signal_generation import gen_phase, phase_to_sine
 from utils import utils
@@ -240,9 +250,9 @@ def plot(args):
 		fmt = '-'
 		plt.plot(saw, fmt, label='sawtooth')
 		plt.plot(squ, fmt, label='square')
-		plt.plot(full_tri, fmt, label='full-triangle')
+		plt.plot(full_tri, fmt, label='triangle + even')
 		plt.plot(tri, fmt, label='triangle')
-		plt.plot(anti_tri, fmt, label='anti-triangle')
+		plt.plot(anti_tri, fmt, label='anti-triangle (even only)')
 		plt.plot(i_tri, fmt, label='integral-triangle')
 		plt.grid()
 		plt.legend()

@@ -5,6 +5,9 @@ import math
 from typing import Union, Iterable, Optional
 
 
+# TODO: use math.isclose() for this
+
+
 DEFAULT_EPS = 1.0e-9
 
 

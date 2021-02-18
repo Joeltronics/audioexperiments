@@ -16,7 +16,7 @@ class DattorroReverb(ProcessorBase):
 	Could run at any sample rate, but modifications to various coeffs and delay times would be needed in order to get
 	the same parameters
 
-	Note: delay line modulation is not yet implemented! As a result, this will
+	Note: delay line modulation is not yet implemented!
 	"""
 
 	def __init__(
@@ -28,8 +28,7 @@ class DattorroReverb(ProcessorBase):
 			dry_gain=0.0,
 			modulation_freq: Optional[float]=None):
 		"""
-
-		:param predelay_samples:
+		:param predelay_samples: in addition to the algorithm's natural predelay
 		:param decay:
 		:param damping:
 		:param wet_gain:
@@ -176,19 +175,19 @@ def plot(args):
 	predelay_samples = round(1.e-3 * predelay_ms * sample_rate)
 
 	verb_nomod = DattorroReverb(predelay_samples=predelay_samples, modulation_freq=None)
-	verb_mod = DattorroReverb(predelay_samples=predelay_samples, modulation_freq=1./sample_rate)
+	#verb_mod = DattorroReverb(predelay_samples=predelay_samples, modulation_freq=1./sample_rate)
 
 	x = np.zeros(n_samp)
 	x[0] = 1.0
 
 	print('Processing')
 	y_nomod = verb_nomod.process_vector(x)
-	y_mod = verb_mod.process_vector(x)
+	#y_mod = verb_mod.process_vector(x)
 
 	print('Plotting')
 
 	analyze_reverb_ir(y_nomod, sample_rate, title='Dattorro "Figure 8" Reverb (no modulation)')
-	analyze_reverb_ir(y_mod, sample_rate, title='Dattorro "Figure 8" Reverb (with modulation)')
+	#analyze_reverb_ir(y_mod, sample_rate, title='Dattorro "Figure 8" Reverb (with modulation)')
 	plt.show()
 
 
