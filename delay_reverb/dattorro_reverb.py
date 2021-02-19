@@ -8,9 +8,10 @@ import numpy as np
 from typing import Optional
 
 
-class DattorroReverb(ProcessorBase):
+class GriesingerDattorroFigure8Reverb(ProcessorBase):
 	"""
-	Plate reverb based on algorithm described in Jon Dattorro's "Effect Design Part 1: Reverberator and Other Filters"
+	Plate reverb based on "figure 8" algorithm "in the style of Griesinger" as described by Jon Dattorro in
+	"Effect Design Part 1: Reverberator and Other Filters",
 
 	Original sample rate: 29761 Hz
 	Could run at any sample rate, but modifications to various coeffs and delay times would be needed in order to get
@@ -69,8 +70,8 @@ class DattorroReverb(ProcessorBase):
 		])
 
 		self.dif1 = [
-			allpass.AllpassFilter(decay_diffusion_1, 672 + self.mod_excursion),
-			allpass.AllpassFilter(decay_diffusion_1, 908 + self.mod_excursion),
+			allpass.AllpassFilter(-decay_diffusion_1, 672 + self.mod_excursion),
+			allpass.AllpassFilter(-decay_diffusion_1, 908 + self.mod_excursion),
 		]
 
 		self.del1 = [
@@ -113,6 +114,7 @@ class DattorroReverb(ProcessorBase):
 
 		for n in (0, 1):
 			paths[n] = after_input + self.decay * self.del2[1 - n].peek_front()
+			# TODO: use self.mod_phase (right now the allpass filters don't support it)
 			paths[n] = self.dif1[n].process_sample(paths[n], delay_samples=taps[n])
 
 		del1_in = tuple(paths)
@@ -174,8 +176,8 @@ def plot(args):
 
 	predelay_samples = round(1.e-3 * predelay_ms * sample_rate)
 
-	verb_nomod = DattorroReverb(predelay_samples=predelay_samples, modulation_freq=None)
-	#verb_mod = DattorroReverb(predelay_samples=predelay_samples, modulation_freq=1./sample_rate)
+	verb_nomod = GriesingerDattorroFigure8Reverb(predelay_samples=predelay_samples, modulation_freq=None)
+	#verb_mod = GriesingerDattorroFigure8Reverb(predelay_samples=predelay_samples, modulation_freq=1./sample_rate)
 
 	x = np.zeros(n_samp)
 	x[0] = 1.0
@@ -186,8 +188,8 @@ def plot(args):
 
 	print('Plotting')
 
-	analyze_reverb_ir(y_nomod, sample_rate, title='Dattorro "Figure 8" Reverb (no modulation)')
-	#analyze_reverb_ir(y_mod, sample_rate, title='Dattorro "Figure 8" Reverb (with modulation)')
+	analyze_reverb_ir(y_nomod, sample_rate, title='Griesinger-Dattorro "Figure 8" Reverb (no modulation)')
+	#analyze_reverb_ir(y_mod, sample_rate, title='Griesinger-Dattorro "Figure 8" Reverb (with modulation)')
 	plt.show()
 
 

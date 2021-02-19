@@ -87,6 +87,8 @@ class AllpassFilter(ProcessorBase):
 		#        |              |
 		#         ----- -k -----
 
+		# TODO: use delay_samples
+
 		zout = self.dl.peek_front()
 
 		zin = x - self.k*zout
