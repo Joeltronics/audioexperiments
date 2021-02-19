@@ -135,3 +135,23 @@ class ParallelProcessors(ProcessorBase):
 			else:
 				y += p.process_vector(vec)
 		return y
+
+
+class GainProcessor(StatelessProcessorBase):
+	def __init__(self, gain: float):
+		self.gain = gain
+
+	def process_sample(self, sample: float) -> float:
+		return sample * self.gain
+
+	def process_vector(self, vec: np.ndarray) -> np.ndarray:
+		return vec * self.gain
+
+
+class GainWrapper(CascadedProcessors):
+	def __init__(self, processor: ProcessorBase, gain: float):
+		super().__init__([
+			GainProcessor(gain),
+			processor,
+			GainProcessor(1.0 / gain),
+		])

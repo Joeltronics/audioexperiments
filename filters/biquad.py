@@ -297,7 +297,7 @@ _unit_tests.append(FilterUnitTest(
 	"BiquadHighpass(100 Hz @ 44.1 kHz, Q=0.71)",
 	lambda: BiquadHighpass(100. / 44100., Q=1.0 / sqrt(2.0)),
 	freqs_to_test=np.array([10., 31.62, 100., 316.2, 1000., 3162., 10000.]) / 44100.,
-	expected_freq_response_range_dB=[(-42, -40), (-22, -20), (-3.1, -2.9), (-2, 0), (-1, 0), (-1, 0), (-0.1, 0.0)],
+	expected_freq_response_range_dB=[(-42, -40), (-22, -20), (-3.1, -2.9), (-2, 0.01), (-1, 0.01), (-1, 0.01), (-0.1, 0.01)],
 	expected_phase_response_range_degrees=None,  # [(), (), (), None],
 	deterministic=True,
 	linear=True
@@ -592,8 +592,10 @@ def plot_freq_resp():
 
 
 def plot(args):
+	from matplotlib import pyplot as plt
 	plot_freq_resp()
 	plot_nonlinear()
+	plt.show()
 
 
 def test(verbose=False):

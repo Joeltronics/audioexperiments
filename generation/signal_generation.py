@@ -9,16 +9,18 @@ def sample_time_index(n_samp: int, sample_rate: float) -> np.ndarray:
 
 
 def phase_to_sine(phase):
-	"""Convert phase to sine signal
+	"""
+	Convert phase to sine signal
 
 	:param phase: phase (expect np.ndarray, but float will work too), 0-1
-	:return: cosine signal
+	:return: sine signal
 	"""
 	return np.sin(phase * 2.0 * np.pi)
 
 
 def phase_to_cos(phase):
-	"""Convert phase to cosine signal
+	"""
+	Convert phase to cosine signal
 
 	:param phase: phase (expect np.ndarray, but float will work too), 0-1
 	:return: cosine signal
@@ -28,10 +30,11 @@ def phase_to_cos(phase):
 
 def gen_phase(freq_norm: Union[float, np.ndarray], n_samp: Optional[int]=None, start_phase=0.0, allow_aliasing=False) -> np.ndarray:
 	"""
+	Generate phase signal
 
 	:param freq_norm: normalized frequency, i.e. freq / sample rate. Either a scalar or an nd.array of length n_samp
 	:param n_samp:
-	:param start_phase:
+	:param start_phase: 0-1
 	:param allow_aliasing: if False, will raise ValueError if freq_norm is out of range[0.0, 0.5]
 	:return:
 	"""
@@ -46,7 +49,7 @@ def gen_phase(freq_norm: Union[float, np.ndarray], n_samp: Optional[int]=None, s
 		if n_samp is None:
 			raise ValueError("Must give n_samp if using scalar frequency")
 
-		ph = np.arange(n_samp) * freq_norm
+		ph = np.arange(n_samp, dtype=np.float64) * freq_norm
 	else:
 		if n_samp and len(freq_norm) != n_samp:
 			raise ValueError("n_samp given different size from len(freq_norm)")
@@ -61,12 +64,13 @@ def gen_phase(freq_norm: Union[float, np.ndarray], n_samp: Optional[int]=None, s
 
 
 def gen_sine(freq_norm: float, n_samp: int, start_phase=0.0, allow_aliasing=False) -> np.ndarray:
-	"""Generate sine wave
+	"""
+	Generate sine wave
 
 	:param freq_norm: normalized frequency, i.e. freq / sample rate
 	:param n_samp: number of samples
-	:param start_phase:
-	:param allow_aliasing:
+	:param start_phase: 0-1
+	:param allow_aliasing: if False, will raise ValueError if freq_norm is out of range[0.0, 0.5]
 	:return:
 	"""
 	return phase_to_sine(gen_phase(freq_norm, n_samp, start_phase=start_phase, allow_aliasing=allow_aliasing))
@@ -74,17 +78,19 @@ def gen_sine(freq_norm: float, n_samp: int, start_phase=0.0, allow_aliasing=Fals
 
 def gen_cos_sine(freq_norm: float, n_samp: int) -> Tuple[np.ndarray, np.ndarray]:
 	"""
+	Generate cosine and sine waves at same frequency
 
 	:param freq_norm: normalized frequency, i.e. freq / sample rate
 	:param n_samp: number of samples
-	:return:
+	:return: cosine wave, sine wave
 	"""
 	phase = gen_phase(freq_norm, n_samp)
 	return phase_to_cos(phase), phase_to_sine(phase)
 
 
 def gen_saw(freq_norm: float, n_samp: int) -> np.ndarray:
-	"""Generate naive sawtooth wave (no anti-aliasing)
+	"""
+	Generate naive sawtooth wave (no anti-aliasing)
 
 	:param freq_norm: normalized frequency, i.e. freq / sample rate
 	:param n_samp: number of samples
@@ -94,7 +100,8 @@ def gen_saw(freq_norm: float, n_samp: int) -> np.ndarray:
 
 
 def gen_square(freq_norm: float, n_samp: int) -> np.ndarray:
-	"""Generate naive square wave (no anti-aliasing)
+	"""
+	Generate naive square wave (no anti-aliasing)
 
 	:param freq_norm: normalized frequency, i.e. freq / sample rate
 	:param n_samp: number of samples
@@ -108,9 +115,9 @@ def gen_square(freq_norm: float, n_samp: int) -> np.ndarray:
 def gen_noise(n_samp: int, gaussian=False, amp=1.0) -> np.ndarray:
 	"""Generate white or Gaussian noise"""
 	if gaussian:
-		return np.random.randn(n_samp)
+		return np.random.randn(n_samp) * amp
 	else:
-		return np.random.rand(n_samp)
+		return np.random.rand(n_samp) * amp
 
 
 def gen_freq_sweep_phase(start_freq_norm: float, end_freq_norm: float, n_samp: int, log=True, start_phase=0.0) -> np.ndarray:

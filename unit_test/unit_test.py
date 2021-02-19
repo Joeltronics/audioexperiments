@@ -4,6 +4,7 @@ import traceback
 from typing import Iterable, Callable
 from utils import approx_equal
 from matplotlib import pyplot as plt
+import math
 import numpy as np
 
 
@@ -81,7 +82,24 @@ def test_approx_equal(val1, val2, **kwargs) -> None:
 	if approx_equal.approx_equal(val1, val2, **kwargs):
 		return
 
-	raise UnitTestFailure('Expected %s ~= %s' % (val1, val2))
+	error_strs = []
+
+	abs_err = abs(val1 - val2)
+	error_strs.append('abs err: %g' % abs_err)
+
+	if (val1 > 0) != (val2 > 0):
+		error_strs.append('rel err: Inf due to different signs')
+	else:
+		log_val1 = math.log2(abs(val1))
+		log_val2 = math.log2(abs(val2))
+		rel_err = 2 ** abs(log_val1 - log_val2) - 1
+		error_strs.append('rel err: %g' % rel_err)
+
+	raise UnitTestFailure(
+		'Expected %s ~= %s (%s)' % (
+			val1, val2,
+			', '.join(error_strs)
+		))
 
 
 def expect_return(

@@ -175,6 +175,25 @@ class ThreeHalfsDriver(StatelessProcessorBase):
 		return np.power(A*x + B, 3./2.) - C
 
 
+def squarize(vals: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+	if np.isscalar(vals):
+		return 1.0 if vals >= 0.0 else -1.0
+	else:
+		y = np.ones_like(vals)
+		y[vals < 0.0] = -1.0
+		return y
+
+
+class Squarizer(StatelessProcessorBase):
+	def process_sample(self, sample: float) -> float:
+		return 1.0 if sample >= 0.0 else -1.0
+
+	def process_vector(self, vec: np.ndarray) -> np.ndarray:
+		y = np.ones_like(vec)
+		y[vec < 0.0] = -1.0
+		return y
+
+
 def plot(args):
 	from matplotlib import pyplot as plt
 
@@ -189,6 +208,7 @@ def plot(args):
 	quadx = quadratic_drive(x)
 	cubx = cubic_drive(x)
 	thx = three_halfs_drive(x)
+	sqi = squarize(x)
 
 	dclipx = utils.derivatives(clipx, x, 3)
 	dtanhx = utils.derivatives(tanhx, x, 3)
@@ -199,6 +219,7 @@ def plot(args):
 	dquadx = utils.derivatives(quadx, x, 3)
 	dcubx = utils.derivatives(cubx, x, 3)
 	dthx = utils.derivatives(thx, x, 3)
+	dsqi = utils.derivatives(sqi, x, 3)
 
 	plt.figure()
 	plt.subplot(4, 1, 1)
@@ -212,6 +233,7 @@ def plot(args):
 	plt.plot(x, quadx, label='Quadratic')
 	plt.plot(x, cubx, label='Cubic')
 	plt.plot(x, thx, label='3/2')
+	plt.plot(x, sqi, label='squarizer')
 	plt.ylabel('Transfer function')
 	plt.grid()
 	plt.legend()
@@ -226,6 +248,7 @@ def plot(args):
 	plt.plot(x, dquadx[0], label='Quadratic')
 	plt.plot(x, dcubx[0], label='Cubic')
 	plt.plot(x, dthx[0], label='3/2')
+	plt.plot(x, dsqi[0], label='squarizer')
 	plt.ylabel('1st derivative')
 	plt.grid()
 
@@ -239,6 +262,7 @@ def plot(args):
 	plt.plot(x, dquadx[1], label='Quadratic')
 	plt.plot(x, dcubx[1], label='Cubic')
 	plt.plot(x, dthx[1], label='3/2')
+	plt.plot(x, dsqi[1], label='squarizer')
 	plt.ylabel('2nd derivative')
 	plt.grid()
 	plt.ylim([-2.1, 2.1])
@@ -253,6 +277,7 @@ def plot(args):
 	plt.plot(x, dquadx[2], label='Quadratic')
 	plt.plot(x, dcubx[2], label='Cubic')
 	plt.plot(x, dthx[2], label='3/2')
+	plt.plot(x, dsqi[2], label='squarizer')
 	plt.ylabel('3rd derivative')
 	plt.grid()
 	plt.ylim([-2.1, 6.1])
@@ -291,6 +316,7 @@ def main(args):
 		(three_halfs_drive, '3/2'),
 		(asym_clip, 'Biased clip'),
 		(asym_hardness, 'Asymmetric hardness'),
+		(squarize, 'Squarize'),
 	]
 
 	for func, name in funcs:

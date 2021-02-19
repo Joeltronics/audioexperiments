@@ -25,7 +25,8 @@ class ProcessorUnitTest:
 			expected_phase_response_range_degrees: Optional[Iterable[Optional[Tuple[float, float]]]]=None,
 			deterministic: bool=True,
 			linear: bool=True,
-			amplitude: float=1.0):
+			amplitude: float=1.0,
+			sample_rate=None):
 		"""
 
 		:param name: name for logging
@@ -46,17 +47,18 @@ class ProcessorUnitTest:
 		self.deterministic = deterministic
 		self.linear = linear
 		self.amplitude = amplitude
+		self.sample_rate = sample_rate
 
 	def __call__(self, *args, **kwargs) -> None:
 		"""
 		:raises: UnitTestFailure if test failed
 		"""
 
-		#plot_on_failure = False
-		#if 'plot_on_failure' in kwargs:
-		#	plot_on_failure = kwargs[plot_on_failure]
+		plot_on_failure = False
+		if 'plot_on_failure' in kwargs:
+			plot_on_failure = kwargs[plot_on_failure]
 
-		plot_on_failure=True
+		#plot_on_failure=True
 
 		# Test sanity first - if it doesn't work, remaining tests will be invalid
 		self._test_sanity(plot_on_failure=plot_on_failure)
@@ -72,6 +74,52 @@ class ProcessorUnitTest:
 		above_min = (actual >= expected_range[0]) if expected_range[0] is not None else True
 		below_max = (actual <= expected_range[1]) if expected_range[1] is not None else True
 		return above_min and below_max
+
+	def _plot_mag_failure_text(self, resp):
+
+		sample_rate = self.sample_rate if self.sample_rate else 48000
+
+		def _fmt_thresh(val: float) -> str:
+			return '[%+8.2f]' % val
+
+		def _fmt_val(val: Optional[float]) -> str:
+			if val is None:
+				return ' %8s ' % ''
+			else:
+				return ' %+8.2f ' % val
+
+		def _fmt_freq(val: float) -> str:
+			return ' %8.5f ' % val
+
+		def _fmt_actual_freq(val: float) -> str:
+			return ' %8.2f ' % (val * sample_rate)
+
+		vals_above = []
+		vals_in_range = []
+		vals_below = []
+		for val, (lower_bound, upper_bound) in zip(resp, self.expected_freq_response_range_dB):
+			vals_above.append(val if val > upper_bound else None)
+			vals_in_range.append(val if (lower_bound <= val <= upper_bound) else None)
+			vals_below.append(val if val < lower_bound else None)
+
+		above_thresh_line = '              ' + ' '.join([_fmt_val(val) for val in vals_above])
+		upper_thresh_line = 'Upper thresh: ' + ' '.join([_fmt_thresh(val[1]) for val in self.expected_freq_response_range_dB])
+		good_line         = '              ' + ' '.join([_fmt_val(val) for val in vals_in_range])
+		lower_thresh_line = 'Lower thresh: ' + ' '.join([_fmt_thresh(val[0]) for val in self.expected_freq_response_range_dB])
+		below_thresh_line = '              ' + ' '.join([_fmt_val(val) for val in vals_below])
+		freq_line         = 'Freq:         ' + ' '.join([_fmt_freq(val) for val in self.freqs_to_test])
+		actual_freq_line  = ('Freq @ %-7s' % '%gk:' % (sample_rate / 1000)) + ' '.join([_fmt_actual_freq(val) for val in self.freqs_to_test])
+
+		print('Test failed:')
+		print(self.name)
+		print(above_thresh_line)
+		print(upper_thresh_line)
+		print(good_line)
+		print(lower_thresh_line)
+		print(below_thresh_line)
+		print(freq_line)
+		print(actual_freq_line)
+		print('')
 
 	def _plot_mag_failure(self, resp):
 		plt.figure()
@@ -95,36 +143,12 @@ class ProcessorUnitTest:
 
 		plt.show()
 
+	def _plot_phase_failure(self, resp):
+		pass  # TODO
+
 	def _plot_equal_failure(self, x1, x2, x1_label=None, x2_label=None):
+		# TODO: text-based option
 		unit_test.plot_equal_failure(x1, x2, expected_label=x1_label, actual_label=x2_label, title=self.name)
-
-	@staticmethod
-	def _is_linear(f, mag_dB, rms_mag_dB) -> bool:
-		# Dynamically determine eps based on f and magnitudes
-
-		# FIXME: this doesn't even work properly
-
-		# Shouldn't FFT vs RMS linearity check still work even at very small amplitudes and high freqs?
-		# Even then, there are still some false failures
-
-		# If amplitude is very low, increase eps
-		# Amplitude   eps
-		#    0 dB    0.25 dB
-		#   -5 dB    0.25 dB
-		#  -10 dB    0.5 dB
-		#  -20 dB    1 dB
-		#  -40 dB    2 dB
-		eps = max(0.25, -mag_dB / 20.)
-
-		if f >= 0.5:
-			return True
-
-		# For freqs above 0.1 cycles/sample, increase even further
-		eps_adj = utils.scale(f, (0.1, 0.5), (1., 0.), clip=True)
-		assert eps_adj != 0.0
-		eps /= eps_adj
-
-		return approx_equal_scalar(mag_dB, rms_mag_dB, eps=eps)
 
 	def _test_freq_response(self, plot_on_failure=False) -> None:
 		"""Test frequency response, and linearity if linear
@@ -138,7 +162,14 @@ class ProcessorUnitTest:
 
 		check_phase = self.expected_phase_response_degrees is not None
 
-		freq_resp_ret = freq_response.get_sine_sweep_freq_response(
+		# Test linearity first, before freq response, because if filter is nonlinear then freq response is invalid
+		if self.linear:
+			if not freq_response.check_linear(filt, n_samp=8192, amplitude=10.0):
+				raise UnitTestFailure('Test failed: %s is nonlinear' % self.name)
+
+		filt.reset()
+
+		freq_resp_ret = freq_response.get_discrete_sine_sweep_freq_response(
 			filt,
 			self.freqs_to_test,
 			sample_rate=1.0,
@@ -150,22 +181,19 @@ class ProcessorUnitTest:
 
 		freq_resp_mag = utils.to_dB(freq_resp_ret.mag)
 
-		def test_linear():
-			freq_resp_rms = utils.to_dB(freq_resp_ret.rms * math.sqrt(2.0))
-			for f, f_mag, f_rms in zip(self.freqs_to_test, freq_resp_mag, freq_resp_rms):
-				if not self._is_linear(f, f_mag, f_rms):
-					raise UnitTestFailure(
-						'Test failed: %s is nonlinear - input sine wave freq %f, mag from DFT %.2f dB, mag from RMS %.2f dB' %
-						(self.name, f, f_mag, f_rms))
-
 		def test_freq_resp():
 			for f, actual, expected in zip(self.freqs_to_test, freq_resp_mag, self.expected_freq_response_range_dB):
 				if not self._test_resp(actual, expected):
+
 					if plot_on_failure:
 						self._plot_mag_failure(freq_resp_mag)
+					else:
+						self._plot_mag_failure_text(freq_resp_mag)
+
 					raise UnitTestFailure(
 						'Test failed: %s, freq %f, expected (%s, %s) dB, actual %.2f dB' %
-						(self.name, f, utils.to_pretty_str(expected[0]), utils.to_pretty_str(expected[1]), actual))
+						(self.name, f, utils.to_pretty_str(expected[0]), utils.to_pretty_str(expected[1]), actual)
+					)
 
 		def test_phase():
 			freq_resp_phase_deg = np.rad2deg(freq_resp_ret.phase)
@@ -178,12 +206,6 @@ class ProcessorUnitTest:
 						(self.name, f, utils.to_pretty_str(expected[0]), utils.to_pretty_str(expected[1]), actual))
 
 		test_freq_resp()
-
-		# In theory we should test linearity first, before freq response
-		# Because if filter is nonlinear then freq response is invalid
-		# Except that would only be correct behavior if linearity check actually worked properly
-		if self.linear:
-			test_linear()
 
 		if check_phase:
 			test_phase()

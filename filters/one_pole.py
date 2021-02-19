@@ -172,7 +172,8 @@ _unit_tests.append(FilterUnitTest(
 		expected_freq_response_range_dB=[(-0.1, 0.0), (-3.0, 0.0), (-4.0, -2.0), (-24.0, -18.0)],
 		expected_phase_response_range_degrees=None,  # [(), (), (), None],
 		deterministic=True,
-		linear=True
+		linear=True,
+		sample_rate=44100,
 	))
 
 _unit_tests.append(FilterUnitTest(
@@ -182,7 +183,8 @@ _unit_tests.append(FilterUnitTest(
 		expected_freq_response_range_dB=[(-0.1, 0.0), (-3.0, 0.0), (-4.0, -2.0), (-24.0, -18.0)],
 		expected_phase_response_range_degrees=None,  # [(), (), (), None],
 		deterministic=True,
-		linear=True
+		linear=True,
+		sample_rate=44100,
 	))
 
 _unit_tests.append(FilterUnitTest(
@@ -192,7 +194,8 @@ _unit_tests.append(FilterUnitTest(
 		expected_freq_response_range_dB=[(-0.1, 0.0), (-3.0, 0.0), (-4.0, -2.0), (-24.0, -18.0)],
 		expected_phase_response_range_degrees=None,  # [(), (), (), None],
 		deterministic=True,
-		linear=True
+		linear=True,
+		sample_rate=44100,
 	))
 
 _unit_tests.append(FilterUnitTest(
@@ -202,7 +205,8 @@ _unit_tests.append(FilterUnitTest(
 		expected_freq_response_range_dB=[(-0.1, 0.0), (-3.0, 0.0), (-4.0, -2.0), (-24.0, -18.0)],
 		expected_phase_response_range_degrees=None,  # [(), (), (), None],
 		deterministic=True,
-		linear=True
+		linear=True,
+		sample_rate=44100,
 	))
 
 _unit_tests.append(FilterUnitTest(
@@ -212,7 +216,8 @@ _unit_tests.append(FilterUnitTest(
 		expected_freq_response_range_dB=[(2.9, 3.0), (0.0, 3.0), (-1.0, 1.0), (-21.0, -15.0)],
 		expected_phase_response_range_degrees=None,  # [(), (), (), None],
 		deterministic=True,
-		linear=True
+		linear=True,
+		sample_rate=44100,
 	))
 
 _unit_tests.append(FilterUnitTest(
@@ -222,7 +227,8 @@ _unit_tests.append(FilterUnitTest(
 	expected_freq_response_range_dB=[(-3.0, 0.0), (-4.0, -2.0), (-21.0, -20.0), (-48.0, -38.0)],
 	expected_phase_response_range_degrees=None,  # [(), (), (), None],
 	deterministic=True,
-	linear=True
+	linear=True,
+	sample_rate=44100,
 ))
 
 
@@ -259,7 +265,8 @@ _unit_tests.append(FilterUnitTest(
 	expected_freq_response_range_dB=[(-48.0, -38.0), (-24.0, -18.0), (-4.0, -2.0), (-3.0, 0.0)],
 	expected_phase_response_range_degrees=None,  # [(), (), (), None],
 	deterministic=True,
-	linear=True
+	linear=True,
+	sample_rate=44100,
 ))
 
 
@@ -306,7 +313,8 @@ _unit_tests.append(FilterUnitTest(
 	expected_freq_response_range_dB=[(-0.1, 0.0), (-3.0, 0.0), (-4.0, -2.0), (-24.0, -18.0)],
 	expected_phase_response_range_degrees=None,  # [(), (), (), None],
 	deterministic=True,
-	linear=True
+	linear=True,
+	sample_rate=44100,
 ))
 
 _unit_tests.append(FilterUnitTest(
@@ -316,7 +324,8 @@ _unit_tests.append(FilterUnitTest(
 	expected_freq_response_range_dB=[(-3.0, 0.0), (-4.0, -2.0), (-24.0, -18.0), (-48.0, -38.0)],
 	expected_phase_response_range_degrees=None,  # [(), (), (), None],
 	deterministic=True,
-	linear=True
+	linear=True,
+	sample_rate=44100,
 ))
 
 
@@ -340,7 +349,8 @@ class TrapzOnePoleHighpass(FilterBase):
 		self.lpf.set_state(s[1])
 
 	def process_sample(self, x):
-		y = x - self.lpf.process_sample(0.5 * (x + self.x_prev))
+		x_prev_avg = 0.5 * (x + self.x_prev)
+		y = x_prev_avg - self.lpf.process_sample(x_prev_avg)
 		self.x_prev = x
 		return y
 
@@ -352,7 +362,8 @@ _unit_tests.append(FilterUnitTest(
 	expected_freq_response_range_dB=[(-48.0, -38.0), (-24.0, -18.0), (-4.0, -2.0), (-3.0, 0.0)],
 	expected_phase_response_range_degrees=None,  # [(), (), (), None],
 	deterministic=True,
-	linear=True
+	linear=True,
+	sample_rate=44100,
 ))
 
 

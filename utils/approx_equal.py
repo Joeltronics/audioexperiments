@@ -201,8 +201,15 @@ def approx_equal_vector(
 	if check_abs and not check_rel:
 		# Special case: if only checking absolute error, can do this vectorized
 		err = highest - lowest
-		assert np.amin(err) >= 0  # DEBUG
-		return np.amax(err) < eps_abs
+
+		min_err = np.amin(err)
+		max_err = np.amax(err)
+
+		if np.isnan(min_err) or np.isnan(max_err):
+			raise ValueError('Array contained NaN values')
+
+		assert min_err >= 0
+		return max_err < eps_abs
 
 	else:
 		# Otherwise, the logic has too many branches for it to really be worth vectorizing (due to handling zero cases

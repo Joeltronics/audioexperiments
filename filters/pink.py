@@ -83,8 +83,9 @@ def test(verbose=False):
 
 	freqs = np.array([50., 100., 200., 400., 800., 1600., 3200., 6400., 12800.]) / 44100.
 
+	tol = 0.5
 	expected_vals = -3.0 * np.arange(len(freqs)) - 4.0
-	expected_dB = [(val - 0.5, val + 0.5) for val in expected_vals]
+	expected_dB = [(val - tol, val + tol) for val in expected_vals]
 
 	tests = [
 		ProcessorUnitTest(
@@ -100,8 +101,9 @@ def test(verbose=False):
 
 	freqs = np.array([10., 31.6, 100., 316., 1000., 3162., 10000.]) / 44100.
 
+	tol = 0.5
 	expected_vals = -5.0 * np.arange(len(freqs))
-	expected_dB = [(val - 0.5, val + 0.5) for val in expected_vals]
+	expected_dB = [(val - tol, val + tol) for val in expected_vals]
 	expected_dB[0] = (-3., 0.)
 
 	tests += [
@@ -112,7 +114,8 @@ def test(verbose=False):
 			expected_freq_response_range_dB=expected_dB,
 			expected_phase_response_range_degrees=None,
 			deterministic=True,
-			linear=True
+			linear=True,
+			sample_rate=44100,
 		),
 		ProcessorUnitTest(
 			"PinkFilter(44.1 kHz, sqrt2)",
@@ -121,14 +124,16 @@ def test(verbose=False):
 			expected_freq_response_range_dB=expected_dB,
 			expected_phase_response_range_degrees=None,
 			deterministic=True,
-			linear=True
+			linear=True,
+			sample_rate=44100,
 		),
 	]
 
 	freqs = np.array([10., 31.6, 100., 316., 1000., 3162., 10000., 31623.]) / 96000.
 
+	tol = 0.5
 	expected_vals = -5.0 * np.arange(len(freqs))
-	expected_dB = [(val - 0.5, val + 0.5) for val in expected_vals]
+	expected_dB = [(val - tol, val + tol) for val in expected_vals]
 	expected_dB[0] = (-3., 0.)
 
 	tests += [
@@ -139,7 +144,8 @@ def test(verbose=False):
 			expected_freq_response_range_dB=expected_dB,
 			expected_phase_response_range_degrees=None,
 			deterministic=True,
-			linear=True
+			linear=True,
+			sample_rate=96000,
 		),
 		ProcessorUnitTest(
 			"PinkFilter(96 kHz, sqrt2)",
@@ -148,7 +154,8 @@ def test(verbose=False):
 			expected_freq_response_range_dB=expected_dB,
 			expected_phase_response_range_degrees=None,
 			deterministic=True,
-			linear=True
+			linear=True,
+			sample_rate=96000,
 		),
 		ProcessorUnitTest(
 			"PinkFilter(96 kHz, 1.1)",
@@ -157,7 +164,8 @@ def test(verbose=False):
 			expected_freq_response_range_dB=expected_dB,
 			expected_phase_response_range_degrees=None,
 			deterministic=True,
-			linear=True
+			linear=True,
+			sample_rate=96000,
 		),
 		ProcessorUnitTest(
 			"PinkFilter(96 kHz, 4)",
@@ -166,7 +174,8 @@ def test(verbose=False):
 			expected_freq_response_range_dB=expected_dB,
 			expected_phase_response_range_degrees=None,
 			deterministic=True,
-			linear=True
+			linear=True,
+			sample_rate=96000,
 		),
 	]
 

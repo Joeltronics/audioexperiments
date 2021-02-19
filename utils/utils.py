@@ -3,6 +3,8 @@
 from typing import Tuple, Any, List
 from generation import signal_generation
 from .approx_equal import *
+from unit_test.unit_test import test_approx_equal
+
 from typing import Optional
 import numpy as np
 
@@ -120,6 +122,50 @@ def _test_unit_str():
 _unit_tests.append(_test_unit_str)
 
 
+def integerize_if_int(
+		num: Union[
+			float, int,
+			np.int8, np.int8, np.int32, np.int64,
+			np.uint8, np.uint8, np.uint32, np.uint64,
+			np.float32, np.float64
+		]
+) -> Union[float, int]:
+
+	if isinstance(num, (int, np.int8, np.int8, np.int32, np.int64, np.uint8, np.uint8, np.uint32, np.uint64)):
+		return int(num)
+
+	elif isinstance(num, (float, np.float32, np.float64)):
+		num = float(num)
+		if num.is_integer():
+			return int(num)
+		else:
+			return num
+
+	else:
+		raise TypeError
+
+
+def _test_integerize_if_int():
+
+	for val in [0, -3, 3]:
+
+		ret = integerize_if_int(val)
+		assert isinstance(ret, int)
+		assert ret == val
+
+		ret = integerize_if_int(float(val))
+		assert isinstance(ret, int)
+		assert ret == val
+
+	for val in [0.0000001, -0.0000001, 0.5, -0.5, 2.1, -2.1]:
+		ret = integerize_if_int(val)
+		assert isinstance(ret, float)
+		assert ret == val  # Should be exactly equal, no approx_equal needed
+
+
+_unit_tests.append(_test_integerize_if_int)
+
+
 def sgn(x: Union[float, int, np.ndarray]) -> Union[float, int, np.ndarray]:
 	return np.sign(x)
 
@@ -189,25 +235,25 @@ def scale(val_in, range_in: Tuple[Any, Any], range_out: Tuple[Any, Any], clip=Fa
 
 
 def _test_lerp():
-	assert approx_equal(lerp((10, 20), 0.0), 10.0)
-	assert approx_equal(lerp((10, 20), 0.5), 15.0)
-	assert approx_equal(lerp((10, 20), 1.0), 20.0)
-	assert approx_equal(lerp((10, 20), 1.5, clip=True), 20.0)
-	assert approx_equal(lerp((10, 20), 1.5, clip=False), 25.0)
-	assert approx_equal(lerp((10, 20), -0.5, clip=True), 10.0)
-	assert approx_equal(lerp((10, 20), -0.5, clip=False), 5.0)
+	test_approx_equal(lerp((10, 20), 0.0), 10.0)
+	test_approx_equal(lerp((10, 20), 0.5), 15.0)
+	test_approx_equal(lerp((10, 20), 1.0), 20.0)
+	test_approx_equal(lerp((10, 20), 1.5, clip=True), 20.0)
+	test_approx_equal(lerp((10, 20), 1.5, clip=False), 25.0)
+	test_approx_equal(lerp((10, 20), -0.5, clip=True), 10.0)
+	test_approx_equal(lerp((10, 20), -0.5, clip=False), 5.0)
 
-	assert approx_equal(reverse_lerp((10, 20), 10.0), 0.0)
-	assert approx_equal(reverse_lerp((10, 20), 15.0), 0.5)
-	assert approx_equal(reverse_lerp((10, 20), 20.0), 1.0)
-	assert approx_equal(reverse_lerp((10, 20), 25.0, clip=True), 1.0)
-	assert approx_equal(reverse_lerp((10, 20), 25.0, clip=False), 1.5)
-	assert approx_equal(reverse_lerp((10, 20), 5.0, clip=True), 0.0)
-	assert approx_equal(reverse_lerp((10, 20), 5.0, clip=False), -0.5)
+	test_approx_equal(reverse_lerp((10, 20), 10.0), 0.0)
+	test_approx_equal(reverse_lerp((10, 20), 15.0), 0.5)
+	test_approx_equal(reverse_lerp((10, 20), 20.0), 1.0)
+	test_approx_equal(reverse_lerp((10, 20), 25.0, clip=True), 1.0)
+	test_approx_equal(reverse_lerp((10, 20), 25.0, clip=False), 1.5)
+	test_approx_equal(reverse_lerp((10, 20), 5.0, clip=True), 0.0)
+	test_approx_equal(reverse_lerp((10, 20), 5.0, clip=False), -0.5)
 
-	assert approx_equal(scale(10., (5., 25.), (1., 5.)), 2.)
-	assert approx_equal(scale(30., (5., 25.), (1., 5.), clip=False), 6.)
-	assert approx_equal(scale(30., (5., 25.), (1., 5.), clip=True), 5.)
+	test_approx_equal(scale(10., (5., 25.), (1., 5.)), 2.)
+	test_approx_equal(scale(30., (5., 25.), (1., 5.), clip=False), 6.)
+	test_approx_equal(scale(30., (5., 25.), (1., 5.), clip=True), 5.)
 
 
 _unit_tests.append(_test_lerp)
@@ -221,13 +267,13 @@ def log_lerp(vals: Tuple[Any, Any], x: float, clip=False) -> float:
 
 
 def _test_log_lerp():
-	assert approx_equal(log_lerp((10., 100.), 0.0), 10.)
-	assert approx_equal(log_lerp((10., 100.), 0.5), 31.62, eps=0.005)
-	assert approx_equal(log_lerp((10., 100.), 1.0), 100.)
-	assert approx_equal(log_lerp((10., 100.), 2.0, clip=True), 100.)
-	assert approx_equal(log_lerp((10., 100.), 2.0, clip=False), 1000.)
-	assert approx_equal(log_lerp((10., 100.), -1.0, clip=True), 10.)
-	assert approx_equal(log_lerp((10., 100.), -1.0, clip=False), 1.)
+	test_approx_equal(log_lerp((10., 100.), 0.0), 10.)
+	test_approx_equal(log_lerp((10., 100.), 0.5), 31.62, eps=0.005)
+	test_approx_equal(log_lerp((10., 100.), 1.0), 100.)
+	test_approx_equal(log_lerp((10., 100.), 2.0, clip=True), 100.)
+	test_approx_equal(log_lerp((10., 100.), 2.0, clip=False), 1000.)
+	test_approx_equal(log_lerp((10., 100.), -1.0, clip=True), 10.)
+	test_approx_equal(log_lerp((10., 100.), -1.0, clip=False), 1.)
 
 
 _unit_tests.append(_test_log_lerp)
@@ -246,10 +292,10 @@ def wrap05(val):
 
 
 def _test_wrap05():
-	assert approx_equal(wrap05(0.6), -0.4)
+	test_approx_equal(wrap05(0.6), -0.4)
 	for val in [-0.5, -0.1, 0.0, 0.1, 0.45]:
-		assert approx_equal(wrap05(val), val)
-	assert approx_equal(wrap05(-0.6), 0.4)
+		test_approx_equal(wrap05(val), val)
+	test_approx_equal(wrap05(-0.6), 0.4)
 
 
 _unit_tests.append(_test_wrap05)
@@ -274,19 +320,19 @@ def to_dB(val_lin, min_dB: Optional[float]=None):
 
 def _test_dB():
 	def _test(lin, dB):
-		assert approx_equal(lin, from_dB(dB))
-		assert approx_equal(dB, to_dB(lin))
-		assert approx_equal(lin, from_dB(to_dB(lin)))
-		assert approx_equal(dB, to_dB(from_dB(dB)))
+		test_approx_equal(lin, from_dB(dB))
+		test_approx_equal(dB, to_dB(lin))
+		test_approx_equal(lin, from_dB(to_dB(lin)))
+		test_approx_equal(dB, to_dB(from_dB(dB)))
 
 	double_amp_dB = 20.0 * math.log10(2.0)
-	assert approx_equal(double_amp_dB, 6.02, eps=0.005)  # Test the unit test logic itself
+	test_approx_equal(double_amp_dB, 6.02, eps=0.005)  # Test the unit test logic itself
 
 	_test(1.0, 0.0)
 	_test(2.0, double_amp_dB)
 	_test(0.5, -double_amp_dB)
 
-	assert approx_equal(0.0, to_dB(0.0001, min_dB=0))
+	test_approx_equal(0.0, to_dB(0.0001, min_dB=0))
 
 
 _unit_tests.append(_test_dB)
@@ -301,12 +347,12 @@ def rms(vec, dB=False):
 
 def _test_rms():
 	for val in [-2.0, -1.0, 0.0, 0.0001, 1.0]:
-		assert approx_equal(rms(val), abs(val))
+		test_approx_equal(rms(val), abs(val))
 	n_samp = 2048
 	freq = 1.0 / n_samp
-	assert approx_equal(rms(signal_generation.gen_sine(freq, n_samp)), 1.0 / math.sqrt(2.0))
-	assert approx_equal(rms(signal_generation.gen_saw(freq, n_samp)), 1.0 / math.sqrt(3.0))
-	assert approx_equal(rms(signal_generation.gen_square(freq, n_samp)), 1.0)
+	test_approx_equal(rms(signal_generation.gen_sine(freq, n_samp)), 1.0 / math.sqrt(2.0), eps=1e-6)
+	test_approx_equal(rms(signal_generation.gen_saw(freq, n_samp)), 1.0 / math.sqrt(3.0), eps=1e-6)
+	test_approx_equal(rms(signal_generation.gen_square(freq, n_samp)), 1.0, eps=1e-6)
 
 
 _unit_tests.append(_test_rms)
@@ -324,7 +370,7 @@ def _test_normalize():
 	n_samp = 2048
 	freq = 1.0 / n_samp
 	sig = signal_generation.gen_sine(freq, n_samp)
-	assert approx_equal(normalize(sig * 0.13), sig)
+	test_approx_equal(normalize(sig * 0.13), sig)
 
 
 _unit_tests.append(_test_normalize)

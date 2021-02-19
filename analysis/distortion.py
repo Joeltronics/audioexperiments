@@ -17,8 +17,10 @@ def _plot_harmonics(f, gains_dB: Optional[Iterable[float]]=None, n_harmonics=20,
 		gains_dB=[-24., -12., -6., 0., 6., 12., 24.]
 
 	sample_rate = 192000.
-	n_samp = 48000
-	freq_norm = 100. / sample_rate
+	freq = 100.
+	freq_norm = freq / sample_rate
+
+	n_samp = freq_response.dft_num_samples(freq, sample_rate, max_num_samples=48000, maximize=True)
 
 	for n_gain, gain_dB in enumerate(reversed(gains_dB)):
 
@@ -31,9 +33,10 @@ def _plot_harmonics(f, gains_dB: Optional[Iterable[float]]=None, n_harmonics=20,
 
 		vals = np.zeros_like(idxs)
 		for n, idx in enumerate(idxs):
-			mag, _ = freq_response.single_freq_dft(y, freq_norm * idx)
-			mag = utils.to_dB(mag)
-			vals[n] = mag
+			vals[n] = freq_response.single_freq_dft(y, freq * idx, sample_rate, mag=True, phase=False, normalize=True)
+
+		# TODO: test this - is multiplying by 2 correct?
+		vals = utils.to_dB(2.0 * vals + utils.from_dB(-noise_floor_dB))
 
 		plot_utils.stem_plot_freqs(
 			idxs, vals,
