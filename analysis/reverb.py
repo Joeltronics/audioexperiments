@@ -68,16 +68,21 @@ def analyze_reverb_ir(ir: np.ndarray, sample_rate=48000, title: Optional[str]=No
 	peak_samples = np.argmax(abs_ir)
 	peak_sec = peak_samples / sample_rate
 
+	rms_peak = np.amax(rms)
+	rms_peak_samples = np.argmax(rms)
+	rms_peak_sec = rms_peak_samples / sample_rate
+
 	# dB amplitude
 
 	rms_dB = utils.to_dB(rms, min_dB=-200.)
 	peak_dB = utils.to_dB(peak, min_dB=-200.)
 	max_dB = np.nanmax(peak_dB)
+	max_rms_dB = np.nanmax(rms_dB)
 
 	# RT60
 
-	rt60_dB = max_dB - 60
-	rt60_samples = np.argmax(peak_dB[peak_samples:] < rt60_dB) + peak_samples
+	rt60_dB = max_rms_dB - 60
+	rt60_samples = np.argmax(rms_dB[peak_samples:] < rt60_dB) + rms_peak_samples
 	rt60_sec = rt60_samples / sample_rate
 
 	# Plots
@@ -88,6 +93,7 @@ def analyze_reverb_ir(ir: np.ndarray, sample_rate=48000, title: Optional[str]=No
 
 	plt.axvline(predelay_sec, color='r')
 	plt.axvline(peak_sec, color='r')
+	plt.axvline(rms_peak_sec, color='g')
 
 	plt.plot(t, ir, label='Impulse Response')
 	plt.plot(t, peak, label='Peak Magnitude')
@@ -96,6 +102,7 @@ def analyze_reverb_ir(ir: np.ndarray, sample_rate=48000, title: Optional[str]=No
 
 	plt.text(predelay_sec, abs_peak, 'Predelay: %s' % _sec_to_str(predelay_sec))
 	plt.text(peak_sec, abs_peak*1.1, 'Peak: %s' % _sec_to_str(peak_sec))
+	plt.text(rms_peak_sec, rms_peak*1.1, 'RMS Peak: %s' % _sec_to_str(rms_peak_sec))
 
 	plt.legend()
 	plt.grid()
@@ -115,13 +122,15 @@ def analyze_reverb_ir(ir: np.ndarray, sample_rate=48000, title: Optional[str]=No
 
 	plt.subplot(4, 1, 3)
 
-	plt.axhline(max_dB, color='r')
+	plt.axhline(max_rms_dB, color='r')
 	plt.axhline(rt60_dB, color='r')
+	plt.axvline(rms_peak_sec, color='r')
 	plt.axvline(rt60_sec, color='r')
 
 	plt.plot(t, peak_dB, label='Peak Magnitude')
+	plt.plot(t, rms_dB, label='RMS Magnitude')
 
-	plt.text(0, max_dB, 'Peak: %.1f dB' % max_dB)
+	plt.text(0, max_dB, 'Peak RMS: %.1f dB' % max_dB)
 	plt.text(rt60_sec, rt60_dB, 'RT60: %s' % _sec_to_str(rt60_sec))
 
 	plt.legend()
