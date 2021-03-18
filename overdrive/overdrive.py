@@ -96,6 +96,19 @@ def sqrt_drive(vals: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
 	return utils.sgn(vals) * 2.0 * (np.sqrt(np.abs(vals) + 1.0) - 1.0)
 
 
+def quadratic_drive(vals: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+	# Peak value is 1.5
+	vals = np.clip(vals, -3, 3)
+	return utils.sgn(vals) * (np.abs(vals) - np.square(vals) / 6.0)
+
+
+def cubic_drive(vals: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+	# Peak value is about 0.77
+	clip_val = 2.0 / math.sqrt(3.0)
+	vals = np.clip(vals, -clip_val, clip_val)
+	return -0.25 * vals * (vals - 2.0) * (vals + 2.0)
+
+
 def three_halfs_drive(vals: Union[float, np.ndarray], bias=1., clip_top=None) -> Union[float, np.ndarray]:
 	"""
 	y = x^(3/2) overdrive
@@ -174,6 +187,8 @@ def plot(args):
 	sigx = sigmoid(x)
 	lnx = ln_drive(x)
 	sqrtx = sqrt_drive(x)
+	quadx = quadratic_drive(x)
+	cubx = cubic_drive(x)
 	thx = three_halfs_drive(x)
 
 	dclipx = utils.derivatives(clipx, x, 3)
@@ -182,6 +197,8 @@ def plot(args):
 	dsigx = utils.derivatives(sigx, x, 3)
 	dlnx = utils.derivatives(lnx, x, 3)
 	dsqrtx = utils.derivatives(sqrtx, x, 3)
+	dquadx = utils.derivatives(quadx, x, 3)
+	dcubx = utils.derivatives(cubx, x, 3)
 	dthx = utils.derivatives(thx, x, 3)
 
 	plt.figure()
@@ -193,6 +210,8 @@ def plot(args):
 	plt.plot(x, sigx, label='Sigmoid')
 	plt.plot(x, lnx, label='ln')
 	plt.plot(x, sqrtx, label='sqrt')
+	plt.plot(x, quadx, label='Quadratic')
+	plt.plot(x, cubx, label='Cubic')
 	plt.plot(x, thx, label='3/2')
 	plt.ylabel('Transfer function')
 	plt.grid()
@@ -205,6 +224,8 @@ def plot(args):
 	plt.plot(x, dsigx[0], label='Sigmoid')
 	plt.plot(x, dlnx[0], label='ln')
 	plt.plot(x, dsqrtx[0], label='sqrt')
+	plt.plot(x, dquadx[0], label='Quadratic')
+	plt.plot(x, dcubx[0], label='Cubic')
 	plt.plot(x, dthx[0], label='3/2')
 	plt.ylabel('1st derivative')
 	plt.grid()
@@ -216,6 +237,8 @@ def plot(args):
 	plt.plot(x, dsigx[1], label='Sigmoid')
 	plt.plot(x, dlnx[1], label='ln')
 	plt.plot(x, dsqrtx[1], label='sqrt')
+	plt.plot(x, dquadx[1], label='Quadratic')
+	plt.plot(x, dcubx[1], label='Cubic')
 	plt.plot(x, dthx[1], label='3/2')
 	plt.ylabel('2nd derivative')
 	plt.grid()
@@ -228,6 +251,8 @@ def plot(args):
 	plt.plot(x, dsigx[2], label='Sigmoid')
 	plt.plot(x, dlnx[2], label='ln')
 	plt.plot(x, dsqrtx[2], label='sqrt')
+	plt.plot(x, dquadx[2], label='Quadratic')
+	plt.plot(x, dcubx[2], label='Cubic')
 	plt.plot(x, dthx[2], label='3/2')
 	plt.ylabel('3rd derivative')
 	plt.grid()
@@ -260,8 +285,10 @@ def main(args):
 		(tanh, 'tanh'),
 		(atan, 'atan'),
 		(sigmoid, 'sigmoid'),
-		(ln_drive, 'ln_drive'),
-		(sqrt_drive, 'sqrt_drive'),
+		(ln_drive, 'ln'),
+		(sqrt_drive, 'sqrt'),
+		(quadratic_drive, 'quadratic'),
+		(cubic_drive, 'cubic'),
 		(three_halfs_drive, '3/2'),
 		(asym_clip, 'Biased clip'),
 		(asym_hardness, 'Asymmetric hardness'),
