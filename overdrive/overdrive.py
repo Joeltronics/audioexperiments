@@ -97,16 +97,15 @@ def sqrt_drive(vals: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
 
 
 def quadratic_drive(vals: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
-	# Peak value is 1.5
-	vals = np.clip(vals, -3, 3)
-	return utils.sgn(vals) * (np.abs(vals) - np.square(vals) / 6.0)
+	vals = np.clip(vals * 1.5, -3, 3)
+	return utils.sgn(vals) * (np.abs(vals) - np.square(vals) / 6.0) / 1.5
 
 
 def cubic_drive(vals: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
-	# Peak value is about 0.77
+	scale = 4 * math.sqrt(3) / 9
 	clip_val = 2.0 / math.sqrt(3.0)
-	vals = np.clip(vals, -clip_val, clip_val)
-	return -0.25 * vals * (vals - 2.0) * (vals + 2.0)
+	vals = np.clip(vals * scale, -clip_val, clip_val)
+	return -0.25 * vals * (vals - 2.0) * (vals + 2.0) / scale
 
 
 def three_halfs_drive(vals: Union[float, np.ndarray], bias=1., clip_top=None) -> Union[float, np.ndarray]:
