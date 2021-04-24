@@ -4,7 +4,7 @@ from .filter_base import FilterBase, FilterForm
 from unit_test.processor_unit_test import FilterUnitTest
 from utils import utils
 
-from math import pi, exp, tan, log10
+from math import pi, exp, tan, log10, cos, sqrt
 import numpy as np
 import scipy.signal
 from typing import Optional
@@ -19,6 +19,11 @@ _unit_tests = []
 
 
 class BasicOnePole(FilterBase):
+	"""
+	One-pole filter of the form:
+	y[n] = b0 * x[n] - a1 * y(n-1)
+	"""
+
 	def __init__(
 			self,
 			wc: Optional[float],
@@ -59,7 +64,7 @@ class BasicOnePole(FilterBase):
 	def set_state(self, s):
 		self.z1 = s
 
-	def set_freq(self, wc: Optional[float], b0=None, a1=None, gain=None):
+	def set_freq(self, wc: Optional[float], b0=None, a1=None, gain=None, exact=True):
 
 		if sum([val is not None for val in [wc, b0, a1]]) != 1:
 			raise ValueError('Must give only one of: wc, b0, a1')
@@ -76,9 +81,8 @@ class BasicOnePole(FilterBase):
 				na1 = -a1
 				b0 = 1.0 - na1
 
-			self.b0 = b0
+			self.b0 = b0 * self.gain
 			self.na1 = na1
-			self.b0 *= self.gain
 
 		else:
 			super().throw_if_invalid_freq(wc)
@@ -86,8 +90,18 @@ class BasicOnePole(FilterBase):
 			if gain is not None:
 				self.gain = gain
 
-			self.na1 = exp(-2.0 * pi * wc)
-			self.b0 = (1.0 - self.na1) * self.gain
+			# https://dsp.stackexchange.com/questions/54086/single-pole-iir-low-pass-filter-which-is-the-correct-formula-for-the-decay-coe
+
+			if exact:
+				y = 1 - cos(2.0 * pi * wc)
+				alpha = -y + sqrt(y*y + 2*y)
+				self.b0 = alpha * self.gain
+				self.na1 = 1.0 - alpha
+
+			else:
+				# Close approximation; less accurate at higher frequencies
+				self.na1 = exp(-2.0 * pi * wc)
+				self.b0 = (1.0 - self.na1) * self.gain
 
 		assert self.na1 > 0.0
 		assert self.b0 > 0.0
