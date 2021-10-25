@@ -302,11 +302,16 @@ def main(args):
 	from analysis.distortion import plot_distortion
 
 	asym_clip = np.vectorize(lambda x: clip(x + 0.25))
-	asym_hardness = np.vectorize(lambda x: clip(x) if x < 0 else tanh(x))
+	asym_hard_tanh = np.vectorize(lambda x: clip(x) if x < 0 else tanh(x))
+	asym_tanh_ln = np.vectorize(lambda x: tanh(x) if x < 0 else ln_drive(x))
+	single_sided_clip = np.vectorize(lambda x: clip(x) if x < 0 else x)
+	single_sided_tanh = np.vectorize(lambda x: tanh(x) if x < 0 else x)
 
 	funcs = [
 		(clip, 'clip'),
+		(single_sided_clip, 'half-clip'),
 		(tanh, 'tanh'),
+		(single_sided_tanh, 'half-tanh'),
 		(atan, 'atan'),
 		(sigmoid, 'sigmoid'),
 		(ln_drive, 'ln'),
@@ -315,7 +320,8 @@ def main(args):
 		(cubic_drive, 'cubic'),
 		(three_halfs_drive, '3/2 power'),
 		(asym_clip, 'Biased clip'),
-		(asym_hardness, 'Asymmetric hard/tanh'),
+		(asym_hard_tanh, 'Asymmetric hard/tanh'),
+		(asym_tanh_ln, 'Asymmetric tanh/ln'),
 		(squarize, 'Squarize'),
 	]
 

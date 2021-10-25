@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
+from mpl_toolkits import mplot3d
 
 from matplotlib import pyplot as plt
+from matplotlib import cm
 from typing import Callable, Optional, Iterable
 import numpy as np
 from utils import utils
@@ -12,9 +14,54 @@ import scipy.signal
 from overdrive import overdrive
 
 
-def _plot_harmonics(f, gains_dB: Optional[Iterable[float]]=None, n_harmonics=20, noise_floor_dB=120):
+# TODO: there's a lot of redundant calculation in 2D & 3D plots; combine them
+# TODO: separate plots for even & odd harmonics could be interesting
 
-	# FIXME: noise_floor_dB should be negative. But then also have to fix in stem_plot_freqs - have to check if/where else that's used
+
+def _plot_harmonics_3d(ax, f, gains_dB: Optional[Iterable[float]]=None, n_harmonics=16, noise_floor_dB=None):
+
+	if noise_floor_dB is None:
+		noise_floor_dB = 200
+
+	if gains_dB is None:
+		gains_dB = np.arange(-48, 48, 3)
+
+	n_samp = 1024
+	freq_norm = 1.0 / n_samp
+
+	harmonic_numbers = np.arange(1, n_harmonics + 1)
+
+	x = signal_generation.gen_sine(freq_norm, n_samp)
+
+	ax.set_xlabel('Harmonic')
+	ax.set_ylabel('Input amplitude (dB)')
+	ax.set_zlabel('Output harmonic magnitude (dB)')
+
+	x_grid, y_grid = np.meshgrid(harmonic_numbers, gains_dB)
+	z_grid = np.zeros_like(x_grid, dtype=np.float)
+
+	for n_gain, gain_dB in enumerate(gains_dB):
+
+		x_with_gain = x * utils.from_dB(gain_dB)
+		y = f(x_with_gain)
+
+		fft_y = np.fft.fft(y) / n_samp
+		vals = np.abs(fft_y[1:n_harmonics+1])
+		vals = utils.to_dB(vals, min_dB=-noise_floor_dB)
+
+		z_grid[n_gain] = vals
+
+	#ax.plot_wireframe(x_grid, y_grid, z_grid)
+	ax.plot_surface(x_grid, y_grid, z_grid, cmap=cm.coolwarm)
+
+	xticks = np.arange(0, n_harmonics, 2)
+	ax.set_xticks(xticks)
+
+
+def _plot_harmonics_2d(ax, f, gains_dB: Optional[Iterable[float]]=None, n_harmonics=16, noise_floor_dB=None):
+
+	if noise_floor_dB is None:
+		noise_floor_dB = 96
 
 	if gains_dB is None:
 		gains_dB=[-24., -12., -6., 0., 6., 12., 24.]
@@ -22,7 +69,7 @@ def _plot_harmonics(f, gains_dB: Optional[Iterable[float]]=None, n_harmonics=20,
 	n_samp = 1024
 	freq_norm = 1.0 / n_samp
 
-	idxs = np.arange(1, n_harmonics + 1)
+	harmonic_numbers = np.arange(1, n_harmonics + 1)
 
 	x = signal_generation.gen_sine(freq_norm, n_samp)
 
@@ -36,18 +83,25 @@ def _plot_harmonics(f, gains_dB: Optional[Iterable[float]]=None, n_harmonics=20,
 		vals = utils.to_dB(vals, min_dB=-noise_floor_dB)
 
 		plot_utils.stem_plot_freqs(
-			idxs, vals,
+			harmonic_numbers, vals,
 			noise_floor_dB=noise_floor_dB,
 			label=('%+g dB' % gain_dB),
 			set_lims=(n_gain == 0))
 
-	plt.grid()
-	plt.legend()
+	xticks = np.arange(1, n_harmonics, 2)
+
+	ax.set_xticks(xticks)
+
+	ax.grid()
+	ax.legend()
 
 
-def _plot_intermod(f, gains_dB: Optional[Iterable[float]]=None, noise_floor_dB=120, **kwargs):
+def _plot_intermod(ax, f, gains_dB: Optional[Iterable[float]]=None, noise_floor_dB=None):
 
-	# TODO: just use FFT for this
+	if noise_floor_dB is None:
+		noise_floor_dB = 96
+
+	# TODO: just use FFT for this, like for plot_harmonics
 
 	if gains_dB is None:
 		gains_dB = [-12., -6., 0., 6., 12.]
@@ -114,7 +168,7 @@ def _plot_intermod(f, gains_dB: Optional[Iterable[float]]=None, noise_floor_dB=1
 	def annotate(freq, text):
 		idx = [n for n, f in enumerate(freqs) if utils.approx_equal(f, freq)][0]
 		y = max([result[idx] for result in results]) + noise_floor_dB + 5
-		plt.text(freq, y, text, rotation=45)
+		ax.text(freq, y, text, rotation=45)
 
 	annotate(f1, 'f1')
 	annotate(f2, 'f2')
@@ -131,19 +185,17 @@ def _plot_intermod(f, gains_dB: Optional[Iterable[float]]=None, noise_floor_dB=1
 	annotate(2*f1 + f2, 'IM3')
 	annotate(2*f2 + f1, 'IM3')
 
-	plt.xlim([0., 4000.])
-	plt.grid()
-	plt.legend()
+	ax.set_xlim([0., 4000.])
+	ax.grid()
+	ax.legend()
 
 
-def _plot_transfer_function(f):
+def _plot_transfer_function(ax, f):
 	x = np.linspace(-10., 10., 10001)
 	y = f(x)
 	x_plot, y_plot = plot_utils.reduce_plot_points(x, y)
-	plt.plot(x_plot, y_plot, label="Transfer function")
-	plt.title('Transfer function')
-	plt.legend()
-	plt.grid()
+	ax.plot(x_plot, y_plot, label="Transfer function")
+	ax.grid()
 
 
 def _get_discontinuities(x, y):
@@ -165,7 +217,7 @@ def _get_discontinuities(x, y):
 	return discont_x, discont_y
 
 
-def _plot_derivatives(f, n_derivs):
+def _plot_derivatives(ax, f, n_derivs):
 	x = np.linspace(-10., 10., 40001)
 	y = f(x)
 	derivs = utils.derivatives(y, x, n_derivs=n_derivs, discontinuity_thresh=10.)
@@ -183,35 +235,52 @@ def _plot_derivatives(f, n_derivs):
 		discont_x, discont_y = _get_discontinuities(x, d)
 
 		color = next(color_cycler)['color']
-		plt.plot(x_plot, y_plot, label=('Derivative %i' % (nd + 1)), color=color, zorder=-nd)
-		plt.scatter(discont_x, discont_y, s=40, facecolors='none', edgecolors=color, zorder=-nd)
+		ax.plot(x_plot, y_plot, label=('Derivative %i' % (nd + 1)), color=color, zorder=-nd)
+		ax.scatter(discont_x, discont_y, s=40, facecolors='none', edgecolors=color, zorder=-nd)
 
-	plt.legend()
-	plt.grid()
+	ax.legend()
+	ax.grid()
 
 
-def plot_distortion(f: Callable, title='', n_derivs=4, noise_floor_dB=120):
+def plot_distortion(f: Callable, title='', n_derivs=4, n_harmonics=16, noise_floor_dB=None):
+	"""
+	:param f: distortion function; assumed to be memoryless
+	:param title: plot title
+	:param n_derivs: number of derivatives to plot
+	:param n_harmonics: number of harmonics to plot
+	:param noise_floor_dB: noise floor (positive dB value)
+	:param do_3d_plot: do 3D plot of harmonics
+	:return:
+	"""
+
+	# FIXME: noise_floor_dB should be negative. But then also have to fix in stem_plot_freqs - have to check if/where else that's used
 
 	fig = plt.figure()
+
+	gs = fig.add_gridspec(3, 3)
 
 	if title:
 		fig.suptitle(title)
 
-	plt.subplot(2, 2, 1)
-	plt.title('Transfer function')
-	_plot_transfer_function(f)
+	ax = fig.add_subplot(gs[0, 0])
+	ax.set_title('Transfer function')
+	_plot_transfer_function(ax, f)
 
-	plt.subplot(2, 2, 3)
-	plt.title('Derivatives')
-	_plot_derivatives(f, n_derivs)
+	ax = fig.add_subplot(gs[1, 0])
+	ax.set_title('Derivatives')
+	_plot_derivatives(ax, f, n_derivs)
 
-	plt.subplot(2, 2, 4)
-	plt.title('Intermodulation')
-	_plot_intermod(f, noise_floor_dB=noise_floor_dB)
+	ax = fig.add_subplot(gs[-1, 1:])
+	ax.set_title('Intermodulation')
+	_plot_intermod(ax, f, noise_floor_dB=noise_floor_dB)
 
-	plt.subplot(2, 2, 2)
-	plt.title('Harmonic distortion')
-	_plot_harmonics(f, noise_floor_dB=noise_floor_dB)
+	ax = fig.add_subplot(gs[:-1, 1:,], projection='3d')
+	ax.set_title('Harmonic distortion (3D)')
+	_plot_harmonics_3d(ax, f, n_harmonics=n_harmonics, noise_floor_dB=noise_floor_dB)
+
+	ax = fig.add_subplot(gs[-1, 0])
+	ax.set_title('Harmonic distortion (2D)')
+	_plot_harmonics_2d(ax, f, n_harmonics=n_harmonics, noise_floor_dB=noise_floor_dB)
 
 
 def main(args):
@@ -219,13 +288,15 @@ def main(args):
 	asym_hardness = np.vectorize(lambda x: overdrive.clip(x) if x < 0 else overdrive.tanh(x))
 
 	funcs = [
+		(overdrive.clip, 'clip'),
 		(overdrive.tanh, 'tanh'),
 		(asym_hardness, 'Asymmetric hard/tanh'),
 	]
 
 	for func, name in funcs:
 		print('Processing %s' % name)
-		plot_distortion(func, title=name, noise_floor_dB=200)
+		plot_distortion(func, title=name)
 
+	print('Showing plots')
 	plt.show()
 
