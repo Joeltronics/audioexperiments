@@ -15,16 +15,12 @@ from overdrive import overdrive
 def _plot_harmonics(f, gains_dB: Optional[Iterable[float]]=None, n_harmonics=20, noise_floor_dB=120):
 
 	# FIXME: noise_floor_dB should be negative. But then also have to fix in stem_plot_freqs - have to check if/where else that's used
-	# TODO: just use FFT for this
 
 	if gains_dB is None:
 		gains_dB=[-24., -12., -6., 0., 6., 12., 24.]
 
-	sample_rate = 192000.
-	freq = 100.
-	freq_norm = freq / sample_rate
-
-	n_samp = freq_response.dft_num_samples(freq, sample_rate, max_num_samples=48000, maximize=True)
+	n_samp = 1024
+	freq_norm = 1.0 / n_samp
 
 	idxs = np.arange(1, n_harmonics + 1)
 
@@ -35,10 +31,8 @@ def _plot_harmonics(f, gains_dB: Optional[Iterable[float]]=None, n_harmonics=20,
 		x_with_gain = x * utils.from_dB(gain_dB)
 		y = f(x_with_gain)
 
-		vals = np.zeros(len(idxs))
-		for n, idx in enumerate(idxs):
-			vals[n] = freq_response.single_freq_dft(y, freq * idx, sample_rate, mag=True, phase=False, normalize=True)
-
+		fft_y = np.fft.fft(y) / n_samp
+		vals = np.abs(fft_y[1:n_harmonics+1])
 		vals = utils.to_dB(vals, min_dB=-noise_floor_dB)
 
 		plot_utils.stem_plot_freqs(
