@@ -9,9 +9,13 @@ from generation import signal_generation
 from . import freq_response
 from utils import plot_utils
 import scipy.signal
+from overdrive import overdrive
 
 
 def _plot_harmonics(f, gains_dB: Optional[Iterable[float]]=None, n_harmonics=20, noise_floor_dB=120):
+
+	# FIXME: noise_floor_dB should be negative. But then also have to fix in stem_plot_freqs - have to check if/where else that's used
+	# TODO: just use FFT for this
 
 	if gains_dB is None:
 		gains_dB=[-24., -12., -6., 0., 6., 12., 24.]
@@ -22,21 +26,20 @@ def _plot_harmonics(f, gains_dB: Optional[Iterable[float]]=None, n_harmonics=20,
 
 	n_samp = freq_response.dft_num_samples(freq, sample_rate, max_num_samples=48000, maximize=True)
 
+	idxs = np.arange(1, n_harmonics + 1)
+
+	x = signal_generation.gen_sine(freq_norm, n_samp)
+
 	for n_gain, gain_dB in enumerate(reversed(gains_dB)):
 
-		gain_lin = utils.from_dB(gain_dB)
+		x_with_gain = x * utils.from_dB(gain_dB)
+		y = f(x_with_gain)
 
-		x = signal_generation.gen_sine(freq_norm, n_samp) * gain_lin
-		y = f(x)
-
-		idxs = np.arange(1, n_harmonics + 1)
-
-		vals = np.zeros_like(idxs)
+		vals = np.zeros(len(idxs))
 		for n, idx in enumerate(idxs):
 			vals[n] = freq_response.single_freq_dft(y, freq * idx, sample_rate, mag=True, phase=False, normalize=True)
 
-		# TODO: test this - is multiplying by 2 correct?
-		vals = utils.to_dB(2.0 * vals + utils.from_dB(-noise_floor_dB))
+		vals = utils.to_dB(vals, min_dB=-noise_floor_dB)
 
 		plot_utils.stem_plot_freqs(
 			idxs, vals,
@@ -49,11 +52,14 @@ def _plot_harmonics(f, gains_dB: Optional[Iterable[float]]=None, n_harmonics=20,
 
 
 def _plot_intermod(f, gains_dB: Optional[Iterable[float]]=None, noise_floor_dB=120, **kwargs):
+
+	# TODO: just use FFT for this
+
 	if gains_dB is None:
 		gains_dB = [-12., -6., 0., 6., 12.]
 
 	sample_rate = 192000.
-	n_samp = nfft = 32768
+	n_samp = 32768
 
 	f1 = 1000.
 	f2 = 1100.
@@ -84,17 +90,24 @@ def _plot_intermod(f, gains_dB: Optional[Iterable[float]]=None, noise_floor_dB=1
 
 	random_start_phase = 0.31415926
 
-	x = signal_generation.gen_sine(w1, n_samp) + signal_generation.gen_sine(w2, n_samp, start_phase=random_start_phase)
-	x *= 0.5
+	#g1 = 0.75
+	#g2 = 0.25
+
+	g1 = g2 = 0.5
+
+	x = \
+		g1 * signal_generation.gen_sine(w1, n_samp) + \
+		g2 * signal_generation.gen_sine(w2, n_samp, start_phase=random_start_phase)
 
 	results = []
 	for n_gain, gain_dB in enumerate(reversed(gains_dB)):
-		y = f(x * utils.from_dB(gain_dB))
+		x_with_gain = x * utils.from_dB(gain_dB)
+		y = f(x_with_gain)
 		dfty = np.zeros_like(freqs, dtype=np.float64)
 		for n, freq in enumerate(freqs):
-			dfty[n], _ = freq_response.single_freq_dft(y, freq / sample_rate)
+			dfty[n], _ = freq_response.single_freq_dft(y, freq / sample_rate, normalize=True)
 
-		dfty = utils.to_dB(dfty + utils.from_dB(-noise_floor_dB))
+		dfty = utils.to_dB(dfty, min_dB=-noise_floor_dB)
 
 		plot_utils.stem_plot_freqs(
 			freqs, dfty,
@@ -130,15 +143,36 @@ def _plot_intermod(f, gains_dB: Optional[Iterable[float]]=None, noise_floor_dB=1
 
 
 def _plot_transfer_function(f):
-	x = np.linspace(-10., 10., 20001)
-	plt.plot(x, f(x), label="Transfer function")
+	x = np.linspace(-10., 10., 10001)
+	y = f(x)
+	x_plot, y_plot = plot_utils.reduce_plot_points(x, y)
+	plt.plot(x_plot, y_plot, label="Transfer function")
 	plt.title('Transfer function')
 	plt.legend()
 	plt.grid()
 
 
+def _get_discontinuities(x, y):
+	discont_x = []
+	discont_y = []
+
+	for n in range(1, len(x)):
+
+		if np.isnan(y[n]) and (not np.isnan(y[n - 1])):
+			# This is NaN, prev wasn't; use previous
+			discont_x.append(x[n - 1])
+			discont_y.append(y[n - 1])
+
+		elif (not np.isnan(y[n])) and np.isnan(y[n - 1]):
+			# Prev was NaN, this is; use this
+			discont_x.append(x[n])
+			discont_y.append(y[n])
+
+	return discont_x, discont_y
+
+
 def _plot_derivatives(f, n_derivs):
-	x = np.linspace(-10., 10., 80001)
+	x = np.linspace(-10., 10., 40001)
 	y = f(x)
 	derivs = utils.derivatives(y, x, n_derivs=n_derivs, discontinuity_thresh=10.)
 
@@ -147,24 +181,15 @@ def _plot_derivatives(f, n_derivs):
 			if abs(derivs[dn][n]) > 10.:
 				derivs[dn][n] = np.nan
 
-	color_cycler = plt.gca()._get_lines.prop_cycler
+	color_cycler = plt.gca()._get_lines.prop_cycler  # FIXME HACK
 
 	for nd, d in enumerate(derivs):
-		discont_x = []
-		discont_y = []
 
-		for n in range(len(x)):
-			if n == 0:
-				continue
-			if np.isnan(d[n]) and (not np.isnan(d[n - 1])):
-				discont_x.append(x[n-1])
-				discont_y.append(d[n-1])
-			elif (not np.isnan(d[n])) and np.isnan(d[n - 1]):
-				discont_x.append(x[n])
-				discont_y.append(d[n])
+		x_plot, y_plot = plot_utils.reduce_plot_points(x, d)
+		discont_x, discont_y = _get_discontinuities(x, d)
 
 		color = next(color_cycler)['color']
-		plt.plot(x, d, label=('Derivative %i' % (nd + 1)), color=color, zorder=-nd)
+		plt.plot(x_plot, y_plot, label=('Derivative %i' % (nd + 1)), color=color, zorder=-nd)
 		plt.scatter(discont_x, discont_y, s=40, facecolors='none', edgecolors=color, zorder=-nd)
 
 	plt.legend()
@@ -174,6 +199,9 @@ def _plot_derivatives(f, n_derivs):
 def plot_distortion(f: Callable, title='', n_derivs=4, noise_floor_dB=120):
 
 	fig = plt.figure()
+
+	if title:
+		fig.suptitle(title)
 
 	plt.subplot(2, 2, 1)
 	plt.title('Transfer function')
@@ -185,11 +213,25 @@ def plot_distortion(f: Callable, title='', n_derivs=4, noise_floor_dB=120):
 
 	plt.subplot(2, 2, 4)
 	plt.title('Intermodulation')
-	_plot_intermod(f)
+	_plot_intermod(f, noise_floor_dB=noise_floor_dB)
 
 	plt.subplot(2, 2, 2)
 	plt.title('Harmonic distortion')
 	_plot_harmonics(f, noise_floor_dB=noise_floor_dB)
 
-	if title:
-		fig.suptitle(title)
+
+def main(args):
+
+	asym_hardness = np.vectorize(lambda x: overdrive.clip(x) if x < 0 else overdrive.tanh(x))
+
+	funcs = [
+		(overdrive.tanh, 'tanh'),
+		(asym_hardness, 'Asymmetric hard/tanh'),
+	]
+
+	for func, name in funcs:
+		print('Processing %s' % name)
+		plot_distortion(func, title=name, noise_floor_dB=200)
+
+	plt.show()
+

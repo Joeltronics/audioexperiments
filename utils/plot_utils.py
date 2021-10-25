@@ -296,3 +296,44 @@ def plot_freq_resp(
 
 	# Whatever the final subplot is
 	final_subplot.set_xlabel('Freq')
+
+
+def reduce_plot_points(x, y, colinear_thresh=1e-5):
+	"""
+	:brief: Take 2 large arrays and reduce to smaller set of plots to point
+	"""
+
+	if len(x) != len(y):
+		raise ValueError('x and y must have same length')
+
+	if len(x) < 3:
+		return x, y
+
+	x_out = [x[0], x[1]]
+	y_out = [y[0], y[1]]
+
+	for xn, yn in zip(x[2:], y[2:]):
+
+		x1 = x_out[-2]
+		x2 = x_out[-1]
+		x3 = xn
+
+		y1 = y_out[-2]
+		y2 = y_out[-1]
+		y3 = yn
+
+		y2_if_colinear = utils.scale(x2, (x1, x3), (y1, y3), clip=False)
+
+		if abs(y2_if_colinear - y2) < colinear_thresh:
+			# Colinear - replace last point with current point
+			x_out[-1] = xn
+			y_out[-1] = yn
+
+		else:
+			# Not colinear - append last point
+			x_out.append(xn)
+			y_out.append(yn)
+
+	assert len(x_out) == len(y_out)
+
+	return x_out, y_out

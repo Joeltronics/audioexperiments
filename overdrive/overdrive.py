@@ -313,9 +313,9 @@ def main(args):
 		(sqrt_drive, 'sqrt'),
 		(quadratic_drive, 'quadratic'),
 		(cubic_drive, 'cubic'),
-		(three_halfs_drive, '3/2'),
+		(three_halfs_drive, '3/2 power'),
 		(asym_clip, 'Biased clip'),
-		(asym_hardness, 'Asymmetric hardness'),
+		(asym_hardness, 'Asymmetric hard/tanh'),
 		(squarize, 'Squarize'),
 	]
 
