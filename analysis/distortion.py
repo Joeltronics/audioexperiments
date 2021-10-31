@@ -18,7 +18,15 @@ from overdrive import overdrive
 # TODO: separate plots for even & odd harmonics could be interesting
 
 
-def _plot_harmonics_3d(ax, f, gains_dB: Optional[Iterable[float]]=None, n_harmonics=16, noise_floor_dB=None):
+def _plot_harmonics_3d(
+		ax,
+		f,
+		gains_dB: Optional[Iterable[float]]=None,
+		n_harmonics=16,
+		noise_floor_dB=None,
+		ax_even=None,
+		ax_odd=None
+):
 
 	if noise_floor_dB is None:
 		noise_floor_dB = 200
@@ -51,11 +59,26 @@ def _plot_harmonics_3d(ax, f, gains_dB: Optional[Iterable[float]]=None, n_harmon
 
 		z_grid[n_gain] = vals
 
-	#ax.plot_wireframe(x_grid, y_grid, z_grid)
 	ax.plot_surface(x_grid, y_grid, z_grid, cmap=cm.coolwarm)
 
 	xticks = np.arange(0, n_harmonics, 2)
 	ax.set_xticks(xticks)
+
+	if ax_even is not None:
+		x_plot = x_grid[:, 1::2]
+		y_plot = y_grid[:, 1::2]
+		z_plot = z_grid[:, 1::2]
+		ax_even.plot_surface(x_plot, y_plot, z_plot, cmap=cm.coolwarm)
+		xticks = np.arange(2, n_harmonics, 2)
+		ax_even.set_xticks(xticks)
+
+	if ax_odd is not None:
+		x_plot = x_grid[:, 2::2]
+		y_plot = y_grid[:, 2::2]
+		z_plot = z_grid[:, 2::2]
+		ax_odd.plot_surface(x_plot, y_plot, z_plot, cmap=cm.coolwarm)
+		xticks = np.arange(3, n_harmonics, 2)
+		ax_odd.set_xticks(xticks)
 
 
 def _plot_harmonics_2d(ax, f, gains_dB: Optional[Iterable[float]]=None, n_harmonics=16, noise_floor_dB=None):
@@ -257,7 +280,7 @@ def plot_distortion(f: Callable, title='', n_derivs=4, n_harmonics=16, noise_flo
 
 	fig = plt.figure()
 
-	gs = fig.add_gridspec(3, 3)
+	gs = fig.add_gridspec(3, 4)
 
 	if title:
 		fig.suptitle(title)
@@ -274,9 +297,13 @@ def plot_distortion(f: Callable, title='', n_derivs=4, n_harmonics=16, noise_flo
 	ax.set_title('Intermodulation')
 	_plot_intermod(ax, f, noise_floor_dB=noise_floor_dB)
 
-	ax = fig.add_subplot(gs[:-1, 1:,], projection='3d')
+	ax = fig.add_subplot(gs[:-1, 1:-1], projection='3d')
+	ax_even = fig.add_subplot(gs[0, -1], projection='3d')
+	ax_odd = fig.add_subplot(gs[1, -1], projection='3d')
 	ax.set_title('Harmonic distortion (3D)')
-	_plot_harmonics_3d(ax, f, n_harmonics=n_harmonics, noise_floor_dB=noise_floor_dB)
+	ax_even.set_title('Even harmonics')
+	ax_odd.set_title('Odd harmonics')
+	_plot_harmonics_3d(ax, f, n_harmonics=n_harmonics, noise_floor_dB=noise_floor_dB, ax_even=ax_even, ax_odd=ax_odd)
 
 	ax = fig.add_subplot(gs[-1, 0])
 	ax.set_title('Harmonic distortion (2D)')
