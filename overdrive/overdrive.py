@@ -108,6 +108,38 @@ def cubic_drive(vals: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
 	return -0.25 * vals * (vals - 2.0) * (vals + 2.0) / scale
 
 
+def hyperbolic_drive(vals: Union[float, np.ndarray], k=0.01) -> Union[float, np.ndarray]:
+	"""
+	"""
+
+	"""
+	We want asymptotes at y=x and y=1
+	Rewrite these equations as
+	y - 1 = 0
+	y - x = 0
+	Formula for hyperbola with these asymptotes:
+	(y - 1)(y - x) = k
+	y^2 - xy - y - x = k
+	y = 0.5 * ( +/- sqrt( 4*k + x^2 - 2*x + 1 ) + x + 1 )
+	
+	Problems:
+	* FIXME: Slope isn't 1 at x=0
+	* Weird discontinuities in higher order derivatives
+	"""
+
+	def hyperbola(x):
+		return 0.5 * (-np.sqrt(4*k + np.square(x) - 2*x + 1) + x + 1.0)
+
+	f0 = hyperbola(0)
+
+	def scaled_hyperbola(x):
+		b = -f0
+		m = 1 / (1 + b)
+		return m*(hyperbola(x) + b)
+
+	return np.sign(vals) * scaled_hyperbola(np.abs(vals))
+
+
 def three_halfs_drive(vals: Union[float, np.ndarray], bias=1., clip_top=None) -> Union[float, np.ndarray]:
 	"""
 	y = x^(3/2) overdrive
@@ -322,6 +354,10 @@ def main(args):
 		(asym_clip, 'Biased clip'),
 		(asym_hard_tanh, 'Asymmetric hard/tanh'),
 		(asym_tanh_ln, 'Asymmetric tanh/ln'),
+		(lambda x: hyperbolic_drive(x, 1), 'Hyperbolic drive, k=1'),
+		(lambda x: hyperbolic_drive(x, 0.1), 'Hyperbolic drive, k=0.1'),
+		(lambda x: hyperbolic_drive(x, 0.01), 'Hyperbolic drive, k=0.01'),
+		(lambda x: hyperbolic_drive(x, 0.0001), 'Hyperbolic drive, k=0.0001'),
 		(squarize, 'Squarize'),
 	]
 
