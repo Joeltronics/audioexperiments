@@ -80,9 +80,19 @@ class LinearCascadeFilter(FilterBase):
 		:param compensate_res: compensate gain when resonance increases
 		"""
 		self.s = [0.0 for _ in range(4)]  # State vector
-		self.gain_corr = compensate_res
+		self.compensate_res = compensate_res
 		self.fb = 0.0
+
+		# Define vars in init that will be set in set_freq
+		self.g = None
+		self.m = None
+		self.mg = None
+		self.mg4 = None
+		self.recipmg = None
+		self.gain_corr = None
+
 		self.set_freq(wc, res=res, Q=Q)
+
 		if verbose:
 			if Q is not None:
 				print('LinearCascadeFilter: wc=%f -> g=%f, Q=%f -> fb=%f' % (wc, self.g, Q, self.fb))
@@ -111,7 +121,7 @@ class LinearCascadeFilter(FilterBase):
 		self.mg4 = self.mg ** 4.0
 		self.recipmg = 1.0 / self.mg
 
-		self.gain_corr = 1.0 + self.fb if self.gain_corr else 1.0
+		self.gain_corr = 1.0 + self.fb if self.compensate_res else 1.0
 
 	def reset(self):
 		for n in range(4):
