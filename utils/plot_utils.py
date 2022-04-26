@@ -160,6 +160,7 @@ def plot_freq_resp(
 	else:
 		group_delay_subplot = axes[-1]
 
+	# FIXME: this gives MatplotlibDeprecationWarning
 	final_subplot = plt.subplot(n_plots, 1, n_plots) if axes is None else axes[-1]
 
 	#

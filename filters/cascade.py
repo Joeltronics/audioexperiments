@@ -2,6 +2,7 @@
 
 from .filter_base import FilterBase
 from math import pi, tan
+import numpy as np
 from typing import Optional
 
 
@@ -145,13 +146,14 @@ class LinearCascadeFilter(FilterBase):
 		# These two methods are be the same
 		# working backwards is probably slightly more efficient,
 		# at least if frequency is constant
-		if False:
+		if True:
 			# Work forwards
 			xr = x - (y * r)
 			y0 = m*(g*xr + s[0])
 			y1 = m*(g*y0 + s[1])
 			y2 = m*(g*y1 + s[2])
-			y3 = m*(g*y2 + s[3])
+			#y3 = m*(g*y2 + s[3])
+			y3 = y
 
 		else:
 			# Work backwards
@@ -166,6 +168,243 @@ class LinearCascadeFilter(FilterBase):
 		s[3] = 2.0*y3 - s[3]
 
 		return y * self.gain_corr
+
+
+def calc_analog_freq_resp(f: np.ndarray, fc: float, fb: float) -> np.ndarray:
+	"""
+	Calculate S-domain frequency response of LinearCascadeFilter
+	"""
+
+	w = f / fc
+
+	w2 = w ** 2
+	w3 = w ** 3
+	w4 = w ** 4
+
+	denom_real = w4 - 6*w2 + 1 + fb
+	denom_imag = -4*w3 + 4*w
+
+	return 1 / np.sqrt(denom_real*denom_real + denom_imag*denom_imag)
+
+
+def calc_digital_freq_resp(f: np.ndarray, fc: float, fb: float) -> np.ndarray:
+	"""
+	Attempt to calculate Z-domain frequency response of LinearCascadeFilter
+
+	Doesn't work - the math is complicated and there's almost certainly a mistake in it somewhere
+	"""
+
+	# Figure out consts
+
+	g = tan(pi * fc)
+
+	g2 = g ** 2
+	g3 = g ** 3
+	g4 = g ** 4
+
+	m = 1.0 / (1.0 + g)
+
+	m2 = m ** 2
+	m3 = m ** 3
+	m4 = m ** 4
+
+	r = fb
+
+	# Solve for z^-1
+
+	jwT = 1j * 2 * np.pi * f
+	z1 = 1.0 / np.exp(jwT)
+
+	# Current equations:
+	"""
+	y = ( m4*g4*(x - r*y) + m4*g3*s0 + m3*g2*s1 + m2*g*s2 + m*s3 ) / ( 1.0 + r*m4*g4 )
+	
+	y0 = m * (g * (x - r*y) + s0)
+	y1 = m * (g * y0 + s1)
+	y2 = m * (g * y1 + s2)
+	
+	s0 = 2*y0 - s0*z1
+	s1 = 2*y1 - s1*z1
+	s2 = 2*y2 - s2*z1
+	s3 = 2*y - s3*z1
+	"""
+	
+	# Clean up:
+	"""
+	y = ( m4*g4*x - m4*g4*r*y + m4*g3*s0 + m3*g2*s1 + m2*g*s2 + m*s3 ) / ( 1.0 + r*m4*g4 )
+	
+	y0 = m*g*x - m*g*r*y + m*s0
+	y1 = m*g*y0 + m*s1
+	y2 = m*g*y1 + m*s2
+
+	s0 = 2 * y0 / (1 + z1)
+	s1 = 2 * y1 / (1 + z1)
+	s2 = 2 * y2 / (1 + z1)
+	s3 = 2 * y / (1 + z1)
+	"""
+	
+	# Put y equation in terms of new consts:
+	"""
+	y = A*x - B*y + C*s0 + D*s1 + E*s2 + F*s3
+	"""
+	denom = 1.0 + r * m4 * g4
+	A = m4*g4 / denom
+	B = m4*g4*r / denom
+	C = m4*g3 / denom
+	D = m3*g2 / denom
+	E = m2*g / denom
+	F = m / denom
+
+	# Current equations:
+	"""
+	y0 = m*g*x - m*g*r*y + m*s0
+	y1 = m*g*y0 + m*s1
+	y2 = m*g*y1 + m*s2
+
+	s0 = 2 * y0 / (1 + z1)
+	s1 = 2 * y1 / (1 + z1)
+	s2 = 2 * y2 / (1 + z1)
+	s3 = 2 * y / (1 + z1)
+	
+	y = A*x - B*y + C*s0 + D*s1 + E*s2 + F*s3
+	"""
+	
+	#Remove s3:
+	"""	
+	y = A*x - B*y + C*s0 + D*s1 + E*s2 + F * 2 * y / (1 + z1)
+	"""
+
+	# Redefine F
+
+	F = F * 2 / (1 + z1)
+
+	"""
+	y = A*x - B*y + C*s0 + D*s1 + E*s2 + F*y
+	
+	y0 = m*g*x - m*g*r*y + m*s0
+	y1 = m*g*y0 + m*s1
+	y2 = m*g*y1 + m*s2
+
+	s0 = 2 * y0 / (1 + z1)
+	s1 = 2 * y1 / (1 + z1)
+	s2 = 2 * y2 / (1 + z1)
+	"""
+	
+	# Remove s2:
+	"""
+	y = A*x - B*y + C*s0 + D*s1 + E*2*y2 / (1 + z1) + F*y
+	
+	y2 = m*g*y1 + 2*m*y2 / (1 + z1)
+	y2 - 2*m*y2 / (1 + z1) = m*g*y1
+	y2 * ( 1 - 2*m / (1 + z1) ) = m*g*y1
+	y2 = m*g*y1 * (1 + z1) / ( 1 - 2*m )
+	"""
+
+	E = E * 2 / (1 + z1)
+
+	G = m * g * (1 + z1) / (1 - 2 * m)
+
+	"""
+	y = A*x - B*y + C*s0 + D*s1 + E*y2 + F*y
+	
+	y0 = m*g*x - m*g*r*y + m*s0
+	y1 = m*g*y0 + m*s1
+	y2 = G*y1
+	
+	s0 = 2 * y0 / (1 + z1)
+	s1 = 2 * y1 / (1 + z1)
+	"""
+
+	# Remove y2:
+	"""
+	y = A*x - B*y + C*s0 + D*s1 + E*G*y1 + F*y
+	
+	y0 = m*g*x - m*g*r*y + m*s0
+	y1 = m*g*y0 + m*s1
+	
+	s0 = 2 * y0 / (1 + z1)
+	s1 = 2 * y1 / (1 + z1)	
+	"""
+
+	# Remove s1:
+	"""
+	y = A*x - B*y + C*s0 + D*(2 * y1 / (1 + z1)) + E*G*y1 + F*y
+	  = A*x - B*y + C*s0 + D*2*y1/(1 + z1) + E*G*y1 + F*y
+	
+	y1 = m*g*y0 + m*2*y1 / (1 + z1)
+	y1 - m*2*y1 / (1 + z1) = m*g*y0
+	y1 * (1 - 2*m / (1 + z1)) = m*g*y0
+	y1 = m*g*y0 * (1 + z1) / (1 - 2*m)
+	y1 = G*y0
+	
+	y0 = m*g*x - m*g*r*y + m*s0
+	s0 = 2 * y0 / (1 + z1)
+	"""
+
+	# Redefine D
+
+	D = D * 2 / (1 + z1)
+
+	"""
+	y = A*x - B*y + C*s0 + D*y1 + E*G*y1 + F*y
+	y1 = G*y0
+	y0 = m*g*x - m*g*r*y + m*s0
+	s0 = 2 * y0 / (1 + z1)
+	"""
+
+	# Remove y1:
+	"""
+	y = A*x - B*y + C*s0 + D*G*y0 + E*G*G*y0 + F*y
+	y0 = m*g*x - m*g*r*y + m*s0
+	s0 = 2 * y0 / (1 + z1)
+	"""
+
+	# Remove s0:
+	"""
+	y = A*x - B*y + C*(2 * y0 / (1 + z1)) + D*G*y0 + E*G*G*y0 + F*y
+	
+	y0 = m*g*x - m*g*r*y + 2*m*y0 / (1 + z1)
+	y0 - 2*m*y0 / (1 + z1) = m*g*x - m*g*r*y
+	y0 * (1 - 2*m / (1 + z1)) = m*g*x - m*g*r*y
+	y0 = m * g * (x - r*y) * (1 + z1) / (1 - 2*m)
+	y0 = G * (x - r*y)
+	y0 = G*x - G*r*y
+	"""
+
+	# Redefine C
+
+	C = C * 2 / (1 + z1)
+
+	"""
+	y = A*x - B*y + C*y0 + D*G*y0 + E*G*G*y0 + F*y
+	y0 = G * (x - r*y)
+	"""
+
+	# Clean up and remove y0:
+	"""
+	y = A*x - B*y + C*y0 + D*G*y0 + E*G*G*y0 + F*y
+	0 = A*x - B*y + C*y0 + D*G*y0 + E*G*G*y0 + F*y - y
+	0 = A*x + (F - B - 1)*y + (C + D*G + E*G*G)*y0
+	
+	0 = A*x + (F - B - 1)*y + (C + D*G + E*G*G)*(G*x - G*r*y)
+	0 = A*x + (F - B - 1)*y + (C + D*G + E*G*G)*G*x - (C + D*G + E*G*G)*G*r*y
+	0 = A*x + (F - B - 1)*y + (C*G + D*G2 + E*G3)*x - (C*G + D*G2 + E*G3)*r*y
+	"""
+
+	H = C*G + D*(G**2) + E*(G**3)
+
+	"""
+	0 = A*x + (F - B - 1)*y + H*x - H*r*y
+	
+	H*r*y - (F - B - 1)*y = A*x + H*x
+	y*(H*r - F + B + 1) = x*(A + H)
+	
+	y / x = (A + H) / (H*r + F + B + 1)
+	"""
+
+	h = (A + H) / (H*r + F + B + 1.0)
+
+	return np.abs(h)
 
 
 def determine_res_q():
@@ -195,6 +434,36 @@ def plot(args):
 	from matplotlib import pyplot as plt
 	from utils.plot_utils import plot_freq_resp
 	from math import sqrt
+
+	plot_z = False
+
+	fig, subplots = plt.subplots(2 if plot_z else 1, 1)
+	fig.suptitle('Analog prototype frequency response')
+
+	subplot_s = subplots[0] if plot_z else subplots
+	subplot_z = subplots[1] if plot_z else None
+
+	f = np.logspace(np.log10(20), np.log10(20000), num=200, base=10)
+	for fb in [0, 1, 2, 3, 3.99]:
+		a = calc_analog_freq_resp(f, fc=1000.0, fb=fb)
+		a = 20*np.log10(a)
+		subplot_s.semilogx(f, a, label='fb=%g' % fb)
+
+		if plot_z:
+			ad = calc_digital_freq_resp(f / 44100.0, fc=1000.0/44100.0, fb=fb)
+			#ad = calc_digital_freq_resp(f / 40000.0, fc=1000.0/40000.0, fb=fb)
+			ad = 20*np.log10(ad)
+			subplot_z.semilogx(f, ad, label='fb=%g' % fb)
+
+	subplot_s.set_ylim([-60, 12])
+	subplot_s.set_yticks(np.arange(-60, 12 + 6, 6))
+
+	subplot_s.grid()
+	subplot_s.legend()
+
+	if plot_z:
+		subplot_z.grid()
+		subplot_z.legend()
 
 	default_cutoff = 1000.
 	sample_rate = 48000.
