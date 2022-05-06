@@ -5,9 +5,12 @@ Solves this circuit:
 	          Rs
 	Vin ---\/\/\/\/---+-----+--- Vout
 	                  |     |
-	                  >     |
-	              Rp  >     V  D
-	                  >     -
+	                  |     >
+	                  |     >  Rd
+	                  >     >
+	              Rp  >     |
+	                  >     V  D
+	                  |     -
 	                  |     |
 	                  +--+--+
 	                     |
@@ -20,7 +23,7 @@ import argparse
 from dataclasses import dataclass
 from matplotlib import pyplot as plt
 import numpy as np
-from typing import Optional
+from typing import Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -41,8 +44,9 @@ class Diode:
 class DiodeCircuit:
 	name: str
 	diode: Diode
-	Rs: float = 1000
-	Rp: Optional[float] = None
+	Rs: float = 1000.0
+	Rd: float = 0.0
+	Rp: Optional[float] = None  # None = open circuit (i.e. infinite resistance)
 
 	@classmethod
 	def make(cls, Is: float, n: float, T=27.0, **kwargs):
@@ -52,9 +56,9 @@ class DiodeCircuit:
 """
 Shockley diode equation:
 
-I = Is * exp( Vd / (n * Vt) - 1 )
+Id = Is * exp( Vd / (n * Vt) - 1 )
 
-I:  diode current
+Id: diode current
 Vd: voltage across diode
 Is: reverse bias saturation current (or scale current); typically 10^-12 A
 Vt: thermal voltage (Vt = kT/q), 0.026 V at room temperature
@@ -62,30 +66,35 @@ n:  ideality factor, typically 1-2
 
 The -1 term can be ignored when Vd >> n*Vt
 
-===== If no Rp =====
+===== Basic case -  no Rp, no Rd =====
 
+Vout = Vd
 Vout = Vin - Id * Rs
-Id = Is * exp(Vout / (n*Vt) - 1)
 
 Vout = Vin - Rs * Is * exp(Vout / (n*Vt) - 1)
 Vin = Vout + Rs * Is * exp(Vout / (n*Vt) - 1)
 
 Inverting this involves Lambert W function, which isn't easy to calculate. We'll just calculate the inverse for now
-TODO: solve it using Lambert W
+TODO: solve it using scipy.special.lambertw
+TODO: solve with Newton-Raphson
 
 Id = Is * exp(Vout / (n*Vt) - 1)
 x = y + Rs * Id
 
+===== Full case - with Rp & Rd =====
 
-===== If Rp =====
+Vout = Vd + Id * Rd
 
 Vin = Vout + I * Rs
-I = Irp + Id = Vout / Rp + Id
+Vin = Vout + (Irp + Id) * Rs
+Vin = Vout + (Vout / Rp + Id) * Rs
 
-Vin = Vout + Rs * (Vout / Rp + Id)
-Vin = Vout + Rs * Vout / Rp + Rs * Id
-Vin = Vout * (1 + Rs / Rp) + Rs * Id
+We can already calculate this if we calculate Vout first, but let's put them together to get Vin as a function of only Vd:
+Vin = Vd + Id * Rd + Rs * ((Vd + Id * Rd) / Rp + Id)
+Vin = Vd + Id * Rd + (Vd + Id * Rd) * (Rs / Rp) + Rs * Id
+Vin = Vd + (Id * Rd) + (Id * Rs) + (Vd * Rs / Rp) + (Id * Rd * Rs / Rp)
 
+TODO: turn these into just Vin as a function of Vout (i.e. without needing Vd as an input)
 """
 
 
@@ -96,21 +105,28 @@ def calculate_iv_curve(diode: Diode, Vd: np.ndarray) -> np.ndarray:
 	return Is * (np.exp(Vd / (n * Vt)) - 1.0)
 
 
-def calculate_inv_clip(circuit: DiodeCircuit, v_out: np.ndarray) -> np.ndarray:
+def calculate_clip_from_vd(circuit: DiodeCircuit, v_d: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+	"""
+	:returns: v_in, v_out
+	"""
 	Rs = circuit.Rs
 	Is = circuit.diode.Is
 	n = circuit.diode.n
 	Vt = circuit.diode.Vt
+	Rp = circuit.Rp
+	Rd = circuit.Rd
 
-	Id = Is * (np.exp(v_out / (n * Vt)) - 1.0)
+	Id = Is * (np.exp(v_d / (n * Vt)) - 1.0)
+	Vd = v_d
 
-	if circuit.Rp is not None:
-		Rp = circuit.Rp
-		v_in = v_out * (1 + Rs / Rp) + Rs * Id
+	if Rp is None:
+		Vin = Vd + (Rd * Id) + (Rs * Id)
 	else:
-		v_in = v_out + Rs * Id
+		Vin = Vd + (Rd * Id) + (Rs * Id) + (Vd * Rs / Rp) + (Id * Rd * Rs / Rp)
 
-	return v_in
+	Vout = Vd + Id * Rd
+
+	return Vin, Vout
 
 
 def plot(args):
@@ -126,8 +142,11 @@ def plot(args):
 	group = parser.add_argument_group('Sweep diode parameters')
 	group.add_argument('--temp', dest='sweep_temperature', action='store_true', help='Sweep temperature')
 	group.add_argument('-n', dest='sweep_n', action='store_true', help='Sweep diode N')
-	group.add_argument('--rs', dest='sweep_rs', action='store_true', help='Sweep series resistance')
+	group.add_argument('--rs', dest='sweep_rs', action='store_true', help='Sweep shunt resistance')
 	group.add_argument('--rp', dest='sweep_rp', action='store_true', help='Sweep parallel resistance')
+	group.add_argument('--rd', dest='sweep_rd', action='store_true', help='Sweep diode series resistance')
+	group.add_argument('--rsrd', dest='sweep_rs_rd', action='store_true', help='Sweep diode shunt & series resistance (with constant total)')
+	group.add_argument('--rprd', dest='sweep_rp_rd', action='store_true', help='Sweep various combos of Rp & Rd')
 	group.add_argument('--is', dest='sweep_is', action='store_true', help='Sweep diode saturation current')
 
 	group = parser.add_argument_group('Plot parameters')
@@ -136,6 +155,7 @@ def plot(args):
 
 	args = parser.parse_args(args)
 
+	# TODO: can we check the group directly?
 	if not any((
 			args.sweep_type,
 			args.sweep_silicon,
@@ -143,9 +163,12 @@ def plot(args):
 			args.sweep_measured,
 			args.sweep_n,
 			args.sweep_rs,
+			args.sweep_rd,
+			args.sweep_rs_rd,
 			args.sweep_is,
 			args.sweep_temperature,
-			args.sweep_rp)):
+			args.sweep_rp,
+			args.sweep_rp_rd)):
 		args.sweep_type = True
 
 	nplot = 10000
@@ -219,12 +242,30 @@ def plot(args):
 			else:
 				circuits.append(DiodeCircuit.make(name=f'Rs={Rs//1000}k', Is=1E-12, n=1, Rs=Rs))
 
+	if args.sweep_rd:
+		for Rd in [0, 10, 100, 1000, 10000, 100000]:
+			if Rd < 1000:
+				circuits.append(DiodeCircuit.make(name=f'Rs=1k, Rd={Rd}', Is=1E-12, n=1, Rs=1000, Rd=Rd))
+			else:
+				circuits.append(DiodeCircuit.make(name=f'Rs=1k, Rd={Rd//1000}k', Is=1E-12, n=1, Rs=1000, Rd=Rd))
+
+	if args.sweep_rs_rd:
+		for Rd in [0, 100, 250, 500, 750, 900, 1000]:
+			Rs = 1000 - Rd
+			circuits.append(DiodeCircuit.make(name=f'Rs={Rs}, Rd={Rd}', Is=1E-12, n=1, Rs=Rs, Rd=Rd))
+
 	if args.sweep_rp:
 		for Rp in [1, 10, 100, 1000, 10000, 100000]:
 			if Rp < 1000:
 				circuits.append(DiodeCircuit.make(name=f'Rs=1k, Rp={Rp}', Is=1E-12, n=1, Rp=Rp))
 			else:
 				circuits.append(DiodeCircuit.make(name=f'Rs=1k, Rp={Rp//1000}k', Is=1E-12, n=1, Rp=Rp))
+
+	if args.sweep_rp_rd:
+		circuits.append(DiodeCircuit.make(name=f'Rs=1k, Rp=1k, Rd=0', Is=1E-12, n=1, Rs=1000, Rp=1000, Rd=0))
+		circuits.append(DiodeCircuit.make(name=f'Rs=1k, Rp=1k, Rd=100', Is=1E-12, n=1, Rs=1000, Rp=1000, Rd=100))
+		circuits.append(DiodeCircuit.make(name=f'Rs=1k, Rp=10k, Rd=100', Is=1E-12, n=1, Rs=1000, Rp=10000, Rd=100))
+		circuits.append(DiodeCircuit.make(name=f'Rs=1k, Rp=10k, Rd=1k', Is=1E-12, n=1, Rs=1000, Rp=10000, Rd=1000))
 
 	if args.sweep_temperature:
 		plot_iv = True
@@ -255,11 +296,11 @@ def plot(args):
 
 		plt.figure()
 
-		v_out = np.linspace(0, ymax, nplot)
+		v_d = np.linspace(0, ymax, nplot)
 
-		plt.plot(v_out, v_out, label='y = x')
+		plt.plot(v_d, v_d, label='y = x')
 		for circuit in circuits:
-			v_in = calculate_inv_clip(circuit, v_out)
+			v_in, v_out = calculate_clip_from_vd(circuit, v_d=v_d)
 			plt.plot(v_in, v_out, label=circuit.name)
 
 		plt.grid()
