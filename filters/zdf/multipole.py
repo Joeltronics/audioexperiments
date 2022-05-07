@@ -6,9 +6,9 @@ from math import pi, tanh, pow
 import math
 from collections import Counter
 
-from iter_stats import IterStats
-import solvers
-import filters
+from filters.zdf.iter_stats import IterStats
+import filters.zdf.solvers as solvers
+import filters.zdf.filters as filters
 
 solvers.max_n_iter = 20
 solvers.eps = 1e-5
@@ -56,9 +56,11 @@ Different resonance levels, including self-osc
 Audio-rate FM
 """
 
+
 ########## main ##########	
 
-def main():
+
+def plot(args=None):
 	
 	# Equivalent frequency at fs = 44.1 kHz:
 	#fc = 0.3 # 13 kHz
@@ -77,6 +79,11 @@ def main():
 
 	plt.show()
 
+
+def main(args=None):
+	plot(args)
+
+
 """
 stats_1PLadder = IterStats('1P Ladder')
 stats_1POta = IterStats('1P OTA')
@@ -94,7 +101,9 @@ stats_OtaNegPoles = [IterStats('OTA neg pole %i' % (i+1)) for i in range(4)]
 stats_OtaNegOuter = IterStats('OTA neg outer loop')
 """
 
+
 ########## Utility functions ##########	
+
 
 def gen_phase(freq, n_samp, startPhase=0.0):
 	

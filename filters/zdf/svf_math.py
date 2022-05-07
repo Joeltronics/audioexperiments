@@ -1,4 +1,6 @@
 
+raise ImportError('This file just documentation, not meant to be imported!')
+
 f = 0.5*f
 
 yHp = x - yLp - q*yBp

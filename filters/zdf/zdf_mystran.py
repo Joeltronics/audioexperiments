@@ -309,7 +309,9 @@ def plot_step(n_samp=512, fc=0.05, resonance=0.25, amplitude=0.1, n_iter=4):
 	y_ota /= amplitude
 	
 	plt.figure()
-	
+
+	plt.subplot(2, 1, 1)
+
 	plt.plot(n, x, 'r-', n, y_lad, 'b-', n, y_ota, 'g-')
 	plt.title('Step response')
 	plt.legend(['Input','Ladder','OTA'], loc='upper left')
@@ -317,21 +319,23 @@ def plot_step(n_samp=512, fc=0.05, resonance=0.25, amplitude=0.1, n_iter=4):
 	if(resonance < 0.9):
 		plt.ylim([-0.25, 2.0])
 	plt.xlim([-n_samp/2, n_samp/2])
-	
-	plt.figure()
-	plt.plot(n, actual_n_iter, '.')
-	plt.title('ZDF OTA number of iterations')
+
+	plt.subplot(2, 1, 2)
+
+	plt.plot(n, actual_n_iter, '.', label='OTA')
 	plt.ylim([np.min(actual_n_iter)-0.25, np.max(actual_n_iter)+0.25])
+	plt.ylabel('Number of iterations')
+	plt.legend()
 	plt.grid()
 
 
-def freq_sweep(nFreq=128, n_samp=1024, fc=0.1, resonance=0.25, amplitude=0.1, n_iter=4):
+def freq_sweep(n_freq=128, n_samp=1024, fc=0.1, resonance=0.25, amplitude=0.1, n_iter=4):
 	
-	freqs = 0.5 * np.arange(nFreq) / nFreq
-	#freqs = np.logspace(np.log10(0.001), np.log10(0.25), nFreq)
+	freqs = 0.5 * np.arange(n_freq) / n_freq
+	#freqs = np.logspace(np.log10(0.001), np.log10(0.25), n_freq)
 	
-	Y_lad = np.zeros(nFreq)
-	Y_ota = np.zeros(nFreq)
+	Y_lad = np.zeros(n_freq)
+	Y_ota = np.zeros(n_freq)
 	
 	for n, f in enumerate(freqs):
 		
@@ -363,7 +367,7 @@ def freq_sweep(nFreq=128, n_samp=1024, fc=0.1, resonance=0.25, amplitude=0.1, n_
 	plt.title("fc=%.2f, Res=%.2f" % (fc, resonance))
 
 
-if __name__ == "__main__":
+def plot(args=None):
 	
 	n_iter = 8
 	resonance=0.8
@@ -374,3 +378,11 @@ if __name__ == "__main__":
 	#freq_sweep(n_iter=n_iter, resonance=resonance, amplitude=amp)
 	
 	plt.show()
+
+
+def main(args=None):
+	plot()
+
+
+if __name__ == "__main__":
+	main()

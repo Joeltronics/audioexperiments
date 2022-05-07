@@ -4,9 +4,9 @@ import numpy as np
 from matplotlib import pyplot as plt
 from math import pi
 import math
-from iter_stats import IterStats
+from filters.zdf.iter_stats import IterStats
 from collections import Counter
-import solvers
+import filters.zdf.solvers as solvers
 
 g_max_n_iter = 20
 
@@ -51,8 +51,8 @@ Different resonance levels, including self-osc
 Audio-rate FM
 """
 
-def main():
-	
+def plot(args=None):
+
 	# Equivalent frequency at fc = 44.1 kHz:
 	#fc = 0.3 # 13 kHz
 	#fc = 0.1 # 4.4 kHz
@@ -68,6 +68,10 @@ def main():
 		nonlin_filter(fc=0.1, f_saw=0.01, gain=4.0, n_samp=2048, use_newton=use_newton)
 	
 	plt.show()
+
+
+def main(args=None):
+	plot(args)
 
 
 class BasicOnePole:

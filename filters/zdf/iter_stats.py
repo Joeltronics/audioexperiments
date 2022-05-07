@@ -4,10 +4,11 @@ import numpy as np
 from matplotlib import pyplot as plt
 from collections import Counter
 
-import solvers
+import filters.zdf.solvers as solvers
 
 # TODO: currently there is no way to separate stats from each (outer) iteration
 # (e.g. first outer iteration should maybe have separate stats)
+
 
 class IterStats:
 	def __init__(self, title=None):

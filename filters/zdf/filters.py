@@ -6,8 +6,8 @@ from math import tanh, pi, pow
 import math
 from copy import deepcopy
 
-from iter_stats import IterStats
-import solvers
+from filters.zdf.iter_stats import IterStats
+import filters.zdf.solvers as solvers
 
 
 def freq_to_gain(wc):

@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 
+"""
+Just a quick example of using a linear approximation of tanh, similar to the approximation used in
+Mystran's Pivot Method, but with a tangent instead of a pivot through (0, 0)
+"""
+
+
 import numpy as np
 from matplotlib import pyplot as plt
 from math import pi, tanh
-import math
-
-
-#xp = 0.0
-xp = 0.25
-#xp = 0.75
-#xp = 1.0
-#xp = 1.5
-#xp = 2.0
 
 
 def dtanhdx(x):
@@ -20,45 +17,59 @@ def dtanhdx(x):
 	return np.power(cosh, -2.0)
 
 
-x = np.arange(-1000, 1000) / 100.0
-y = np.tanh(x)
+def plot(args=None):
 
-yp = tanh(xp)
+	#xp = 0.0
+	xp = 0.25
+	#xp = 0.75
+	#xp = 1.0
+	#xp = 1.5
+	#xp = 2.0
 
-# y = mx + b
-# b = y - mx
+	x = np.arange(-1000, 1000) / 100.0
+	y = np.tanh(x)
 
-m = dtanhdx(xp)
-b = tanh(xp) - m*xp
+	yp = tanh(xp)
 
-y_lin = m*x + b
+	# y = mx + b
+	# b = y - mx
 
-err = y - y_lin
-abs_err = np.abs(err)
+	m = dtanhdx(xp)
+	b = tanh(xp) - m*xp
 
-plt.figure()
+	y_lin = m*x + b
 
-plt.plot(x, y, label='true')
-plt.plot(xp, yp, '.', label='tangent point')
-plt.plot(x, y_lin, label='linear')
-plt.plot(x, abs_err, label='abs error')
+	err = y - y_lin
+	abs_err = np.abs(err)
 
-plt.ylim([-1, 1])
-plt.xlim([-4, 4])
+	plt.figure()
 
-print('Error at +0.1:  %f' % err[np.where(x == (xp + 0.1))])
-print('Error at -0.1:  %f' % err[np.where(x == (xp - 0.1))])
+	plt.plot(x, y, label='true')
+	plt.plot(xp, yp, '.', label='tangent point')
+	plt.plot(x, y_lin, label='linear')
+	plt.plot(x, abs_err, label='abs error')
 
-print('Error at +0.05: %f' % err[np.where(x == (xp + 0.05))])
-print('Error at -0.05: %f' % err[np.where(x == (xp - 0.05))])
+	plt.ylim([-1, 1])
+	plt.xlim([-4, 4])
 
-print('Error at +0.01: %f' % err[np.where(x == (xp + 0.01))])
-print('Error at -0.01: %f' % err[np.where(x == (xp - 0.01))])
+	print('Error at +0.1:  %f' % err[np.where(x == (xp + 0.1))])
+	print('Error at -0.1:  %f' % err[np.where(x == (xp - 0.1))])
 
-plt.grid()
-plt.legend()
+	print('Error at +0.05: %f' % err[np.where(x == (xp + 0.05))])
+	print('Error at -0.05: %f' % err[np.where(x == (xp - 0.05))])
 
-plt.show()
+	print('Error at +0.01: %f' % err[np.where(x == (xp + 0.01))])
+	print('Error at -0.01: %f' % err[np.where(x == (xp - 0.01))])
+
+	plt.grid()
+	plt.legend()
+
+	plt.show()
 
 
+def main(args=None):
+	plot()
 
+
+if __name__ == "__main__":
+	main()

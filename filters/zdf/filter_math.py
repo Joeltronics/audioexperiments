@@ -1,4 +1,6 @@
 
+raise ImportError('This file just documentation, not meant to be imported!')
+
 # Base equations (recursive)
 
 m = 1.0 / (1.0 + g)
