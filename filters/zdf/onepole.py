@@ -4,8 +4,11 @@ import numpy as np
 from matplotlib import pyplot as plt
 from math import pi
 import math
+
+from generation.signal_generation import gen_sine, gen_saw
 from solvers.iter_stats import IterStats
 import solvers.solvers as solvers
+from utils.utils import to_dB
 
 
 #g_default_eps = 1e-7 # -140 dB
@@ -49,30 +52,11 @@ Different resonance levels, including self-osc
 Audio-rate FM
 """
 
-def plot(args=None):
-
-	# Equivalent frequency at fc = 44.1 kHz:
-	#fc = 0.3 # 13 kHz
-	#fc = 0.1 # 4.4 kHz
-	#fc = 0.03 # 1.3 kHz
-	#fc = 0.01 # 441 Hz
-	#fc = 0.003 # 132 Hz
-	fc = 0.001 # 4.4 Hz
-	
-	#impulse_response(fc=fc, n_samp=32768)
-	#freq_sweep(fc=fc, n_samp=2048)
-	
-	for use_newton in [False, True]:
-		nonlin_filter(fc=0.1, f_saw=0.01, gain=4.0, n_samp=2048, use_newton=use_newton)
-	
-	plt.show()
-
-
-def main(args=None):
-	plot(args)
-
 
 class BasicOnePole:
+	"""
+	Linear 1-pole lowpass filter, forward Euler
+	"""
 
 	def __init__(self, wc):
 		self.a1 = math.exp(-2.0*pi * wc)
@@ -93,6 +77,9 @@ class BasicOnePole:
 
 
 class TrapzOnePole:
+	"""
+	Linear 1-pole lowpass filter, trapezoidal integration
+	"""
 	
 	def __init__(self, wc):
 
@@ -278,6 +265,7 @@ class OtaOnePole:
 
 		return y
 
+
 class OtaOnePoleNegative:
 
 	def __init__(self, wc, use_newton=True, stats=None):
@@ -349,40 +337,6 @@ class OtaOnePoleNegative:
 		return y
 
 
-def gen_phase(freq, n_samp, startPhase=0.0):
-	
-	if (freq <= 0.0) or (freq >= 0.5):
-		print("Warning: freq out of range %f" % freq)
-
-	# This could be vectorized, but that's hard to do without internet access right now ;)
-	ph = np.zeros(n_samp)
-	phase = startPhase
-	for n in range(n_samp):
-		phase += freq
-		ph[n] = phase
-	
-	ph = np.mod(ph, 1.0)
-	
-	return ph
-
-
-def gen_saw(freq, len):
-	return gen_phase(freq, len) - 0.5
-
-
-def gen_sine(freq, len):
-	"""
-	y = np.zeros(len)
-	prev = 0.0
-	for n in range(len):
-		y[n] = prev
-		prev += freq
-	"""
-	y = gen_phase(freq, len)
-	y *= 2.0 * pi
-	return np.sin(y)
-
-
 def do_fft(x, n_fft, window=False):
 	
 	if window:
@@ -395,12 +349,10 @@ def do_fft(x, n_fft, window=False):
 	# Only take first half
 	y = y[0:len(y)//2]
 	f = f[0:len(f)//2]
-	
+
+	y = to_dB(np.abs(y))
+
 	return y, f
-
-
-def to_dB(x):
-	return 20.0*np.log10(np.abs(x))
 
 
 def find_3dB_freq(freqs, Y):
@@ -433,20 +385,17 @@ def impulse_response(fc=0.003, n_samp=4096, n_fft=None):
 	x = np.zeros(n_samp)
 	x[0] = 1.0
 	
-	filt1 = BasicOnePole(fc)
-	filt2 = TrapzOnePole(fc)
+	filt_lin        = BasicOnePole(fc)
+	filt_tanh_input = TrapzOnePole(fc)
 	
-	y1 = filt1.process(x)
-	y2 = filt2.process(x)
+	y_lin        = filt_lin.process(x)
+	y_tanh_input = filt_tanh_input.process(x)
 	
-	Y1, f = do_fft(y1, n_fft=n_fft, window=False)
-	Y2, _ = do_fft(y2, n_fft=n_fft, window=False)
-	
-	Y1 = to_dB(Y1)
-	Y2 = to_dB(Y2)
-	
-	fc1 = find_3dB_freq(f, Y1)
-	fc2 = find_3dB_freq(f, Y2)
+	fft_y_lin,        f = do_fft(y_lin, n_fft=n_fft, window=False)
+	fft_y_tanh_input, _ = do_fft(y_tanh_input, n_fft=n_fft, window=False)
+
+	fc1 = find_3dB_freq(f, fft_y_lin)
+	fc2 = find_3dB_freq(f, fft_y_tanh_input)
 	
 	print('Ideal fc = %.4f' % fc)
 	print('Basic fc = %.4f (error %.2f%%)' % (fc1, abs(fc1-fc)/fc * 100.0))
@@ -456,7 +405,7 @@ def impulse_response(fc=0.003, n_samp=4096, n_fft=None):
 	
 	plt.subplot(211)
 	
-	plt.semilogx(f, Y1, f, Y2)
+	plt.semilogx(f, fft_y_lin, f, fft_y_tanh_input)
 	plt.legend(['Basic','Trapezoid'], loc=3)
 	plt.title('fc = %f' % fc)
 	plt.grid()
@@ -464,7 +413,7 @@ def impulse_response(fc=0.003, n_samp=4096, n_fft=None):
 	
 	plt.subplot(212)
 	
-	plt.semilogx(f, Y1, f, Y2)
+	plt.semilogx(f, fft_y_lin, f, fft_y_tanh_input)
 	plt.grid()
 
 
@@ -488,38 +437,38 @@ def freq_sweep(fc=0.003, n_samp=4096, n_sweep=None):
 		n_sweep = n_samp
 	
 	f = np.linspace(0.0, 0.49, n_sweep)
-	Y1 = np.zeros_like(f)
-	Y2 = np.zeros_like(f)
+	fft_y_lin = np.zeros_like(f)
+	fft_y_tanh_input = np.zeros_like(f)
 	ph1 = np.zeros_like(f)
 	ph2 = np.zeros_like(f)
 	
-	filt1 = BasicOnePole(fc)
-	filt2 = TrapzOnePole(fc)
+	filt_lin = BasicOnePole(fc)
+	filt_tanh_input = TrapzOnePole(fc)
 	
-	for n, sinFreq in enumerate(f):
+	for n, sin_freq in enumerate(f):
 		
-		if sinFreq == 0:
+		if sin_freq == 0:
 			x = np.ones(n_samp)
 		else:
-			x = gen_sine(sinFreq, n_samp)
+			x = gen_sine(sin_freq, n_samp)
 		
-		filt1.z1 = 0.0
-		filt2.s = 0.0
+		filt_lin.z1 = 0.0
+		filt_tanh_input.s = 0.0
 		
-		y1 = filt1.process(x)
-		y2 = filt2.process(x)
+		y_lin = filt_lin.process(x)
+		y_tanh_input = filt_tanh_input.process(x)
 		
-		Y1[n], ph1[n] = find_amp_phase(y1, x)
-		Y2[n], ph2[n] = find_amp_phase(y2, x)
+		fft_y_lin[n], ph1[n] = find_amp_phase(y_lin, x)
+		fft_y_tanh_input[n], ph2[n] = find_amp_phase(y_tanh_input, x)
 	
-	Y1 = 20*np.log10(Y1)
-	Y2 = 20*np.log10(Y2)
+	fft_y_lin = 20*np.log10(fft_y_lin)
+	fft_y_tanh_input = 20*np.log10(fft_y_tanh_input)
 	
 	plt.figure()
 	
 	plt.subplot(211)
 	
-	plt.semilogx(f, Y1, f, Y2)
+	plt.semilogx(f, fft_y_lin, f, fft_y_tanh_input)
 	plt.legend(['Basic','Trapezoid'], loc=3)
 	plt.title('fc = %f' % fc)
 	plt.grid()
@@ -535,61 +484,79 @@ def nonlin_filter(fc=0.1, f_saw=0.01, gain=2.0, n_samp=2048, use_newton=True):
 
 	method_str = 'Newton-Raphson' if use_newton else 'Simple iteration'
 
-	stats_ladder = IterStats('Ladder, ' + method_str)
-	stats_ota = IterStats('OTA, ' + method_str)
+	stats_ladder  = IterStats('Ladder, ' + method_str)
+	stats_ota     = IterStats('OTA, ' + method_str)
 	stats_ota_neg = IterStats('OTA Negative, ' + method_str)
 
-	filt1 = TrapzOnePole(fc)
-	filt2 = TanhInputTrapzOnePole(fc)
-	filt3 = LadderOnePole(fc, use_newton=use_newton, stats=stats_ladder)
-	filt4 = OtaOnePole(fc, use_newton=use_newton, stats=stats_ota)
-	filt5 = OtaOnePoleNegative(fc, use_newton=use_newton, stats=stats_ota_neg)
+	filt_lin        = TrapzOnePole(fc)
+	filt_tanh_input = TanhInputTrapzOnePole(fc)
+	filt_ladder     = LadderOnePole(fc, use_newton=use_newton, stats=stats_ladder)
+	filt_ota        = OtaOnePole(fc, use_newton=use_newton, stats=stats_ota)
+	filt_neg_ota    = OtaOnePoleNegative(fc, use_newton=use_newton, stats=stats_ota_neg)
 	
-	x = gen_saw(f_saw, n_samp) * gain
+	x = gen_saw(f_saw, n_samp) * gain * 0.5
 	
-	y1 = filt1.process(x)
-	y2 = filt2.process(x)
-	y3 = filt3.process(x)
-	y4 = filt4.process(x)
-	y5 = filt5.process(x)
+	y_lin        = filt_lin.process(x)
+	y_tanh_input = filt_tanh_input.process(x)
+	y_ladder     = filt_ladder.process(x)
+	y_ota        = filt_ota.process(x)
+	y_neg_ota    = filt_neg_ota.process(x)
 	
-	y5 = -y5
+	y_neg_ota = -y_neg_ota
 	
 	t = np.arange(n_samp)
 	
-	X, f  = do_fft(x, n_fft=n_samp, window=True)
-	Y1, _ = do_fft(y1, n_fft=n_samp, window=True)
-	Y2, _ = do_fft(y2, n_fft=n_samp, window=True)
-	Y3, _ = do_fft(y3, n_fft=n_samp, window=True)
-	Y4, _ = do_fft(y4, n_fft=n_samp, window=True)
-	Y5, _ = do_fft(y5, n_fft=n_samp, window=True)
-	
-	X = to_dB(X)
-	Y1 = to_dB(Y1)
-	Y2 = to_dB(Y2)
-	Y3 = to_dB(Y3)
-	Y4 = to_dB(Y4)
-	Y5 = to_dB(Y5)
-	
+	fft_x,            f = do_fft(x,            n_fft=n_samp, window=True)
+	fft_y_lin,        _ = do_fft(y_lin,        n_fft=n_samp, window=True)
+	fft_y_tanh_input, _ = do_fft(y_tanh_input, n_fft=n_samp, window=True)
+	fft_y_ladder,     _ = do_fft(y_ladder,     n_fft=n_samp, window=True)
+	fft_y_ota,        _ = do_fft(y_ota,        n_fft=n_samp, window=True)
+	fft_y_neg_ota,    _ = do_fft(y_neg_ota,    n_fft=n_samp, window=True)
+
 	fig = plt.figure()
 	fig.suptitle(method_str)
 	
-	plt.subplot(211)
-	plt.plot(t, x, t, y1, t, y3, t, y4)
-	plt.legend(['Input','Linear','Ladder','OTA'])
-	#plt.plot(t, x, t, y1, t, y2, t, y3, t, y4, t, y5)
-	#plt.legend(['Input','Linear','tanh input','Ladder','OTA', '-OTA'])
+	plt.subplot(2, 1, 1)
+	plt.plot(t, x, label='Input')
+	plt.plot(t, y_lin, label='Linear')
+	#plt.plot(t, y_tanh_input, label='tanh input')
+	plt.plot(t, y_ladder, label='Ladder')
+	plt.plot(t, y_ota, label='OTA')
+	#plt.plot(t, y_neg_ota, label='-OTA')
+	plt.legend()
 	plt.xlim([0, 256])
 	plt.grid()
 	
-	plt.subplot(212)
-	plt.semilogx(f, X, f, Y1, f, Y3, f, Y4)
-	#plt.semilogx(f, X, f, Y1, f, Y2, f, Y3, f, Y4, f, Y5)
+	plt.subplot(2, 1, 2)
+	plt.semilogx(f, fft_x)
+	plt.semilogx(f, fft_y_lin)
+	#plt.semilogx(f, fft_y_tanh_input)
+	plt.semilogx(f, fft_y_ladder)
+	plt.semilogx(f, fft_y_ota)
+	#plt.semilogx(f, fft_y_neg_ota)
 	plt.grid()
 	
 	for stats in [stats_ladder, stats_ota, stats_ota_neg]:
 		stats.output()
 
 
-if __name__ == "__main__":
-	main()
+def plot(args=None):
+	# Equivalent frequency at fc = 44.1 kHz:
+	#fc = 0.3 # 13 kHz
+	#fc = 0.1 # 4.4 kHz
+	#fc = 0.03 # 1.3 kHz
+	#fc = 0.01 # 441 Hz
+	#fc = 0.003 # 132 Hz
+	fc = 0.001  # 4.4 Hz
+
+	#impulse_response(fc=fc, n_samp=32768)
+	#freq_sweep(fc=fc, n_samp=2048)
+
+	for use_newton in [False, True]:
+		nonlin_filter(fc=0.1, f_saw=0.01, gain=4.0, n_samp=2048, use_newton=use_newton)
+
+	plt.show()
+
+
+def main(args=None):
+	plot(args)

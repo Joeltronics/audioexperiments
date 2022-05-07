@@ -5,18 +5,13 @@ from matplotlib import pyplot as plt
 from math import pi
 import math
 
-import solvers.solvers as solvers
 import filters.zdf.filters as filters
+from generation.signal_generation import gen_sine, gen_saw
+import solvers.solvers as solvers
+from utils.utils import to_dB
 
 solvers.legacy_max_num_iter = 20
 solvers.legacy_eps = 1e-5
-
-"""
-#eps = 1e-7 # -140 dB
-#eps = 1e-6 # -120 dB
-eps = 1e-5 # -100 dB
-#eps = 1e-4 # -80 dB
-"""
 
 """
 Other future things to implement in single filter stage:
@@ -71,9 +66,9 @@ def plot(args=None):
 	#plot_impulse_response(fc=fc, n_samp=32768)
 	#freq_sweep(fc=fc, n_samp=2048)
 	
-	plot_nonlin_filter(fc=0.1, fSaw=0.01, gain=4.0, n_samp=2048)
+	plot_nonlin_filter(fc=0.1, f_saw=0.01, gain=4.0, n_samp=2048)
 	
-	plot_lin_4pole(fc=0.1, fSaw=0.01, res=1.5, n_samp=2048)
+	plot_lin_4pole(fc=0.1, f_saw=0.01, res=1.5, n_samp=2048)
 
 	plt.show()
 
@@ -82,59 +77,7 @@ def main(args=None):
 	plot(args)
 
 
-"""
-stats_1PLadder = IterStats('1P Ladder')
-stats_1POta = IterStats('1P OTA')
-stats_1POtaNeg = IterStats('1P OTA Negative')
-
-stats_LinearOuter = IterStats('Linear outer loop')
-
-stats_LadderPoles = [IterStats('Ladder pole %i' % (i+1)) for i in range(4)]
-stats_LadderOuter = IterStats('Ladder outer loop')
-
-stats_OtaPoles = [IterStats('OTA pole %i' % (i+1)) for i in range(4)]
-stats_OtaOuter = IterStats('OTA outer loop')
-
-stats_OtaNegPoles = [IterStats('OTA neg pole %i' % (i+1)) for i in range(4)]
-stats_OtaNegOuter = IterStats('OTA neg outer loop')
-"""
-
-
 ########## Utility functions ##########	
-
-
-def gen_phase(freq, n_samp, startPhase=0.0):
-	
-	if (freq <= 0.0) or (freq >= 0.5):
-		print("Warning: freq out of range %f" % freq)
-
-	# This could be vectorized, but that's hard to do without internet access right now ;)
-	ph = np.zeros(n_samp)
-	phase = startPhase
-	for n in range(n_samp):
-		phase += freq
-		ph[n] = phase
-	
-	ph = np.mod(ph, 1.0)
-	
-	return ph
-
-
-def gen_saw(freq, len):
-	return gen_phase(freq, len) - 0.5
-
-
-def gen_sine(freq, len):
-	"""
-	y = np.zeros(len)
-	prev = 0.0
-	for n in range(len):
-		y[n] = prev
-		prev += freq
-	"""
-	y = gen_phase(freq, len)
-	y *= 2.0 * pi
-	return np.sin(y)
 
 
 def do_fft(x, n_fft, window=False):
@@ -151,9 +94,6 @@ def do_fft(x, n_fft, window=False):
 	f = f[0:len(f)//2]
 	
 	return y, f
-
-def to_dB(x):
-	return 20.0*np.log10(np.abs(x))
 
 
 def find_3dB_freq(freqs, Y):
@@ -198,8 +138,8 @@ def plot_impulse_response(fc=0.003, n_samp=4096, n_fft=None):
 	Y1, f = do_fft(y1, n_fft=n_fft, window=False)
 	Y2, _ = do_fft(y2, n_fft=n_fft, window=False)
 	
-	Y1 = to_dB(Y1)
-	Y2 = to_dB(Y2)
+	Y1 = to_dB(np.abs(Y1))
+	Y2 = to_dB(np.abs(Y2))
 	
 	fc1 = find_3dB_freq(f, Y1)
 	fc2 = find_3dB_freq(f, Y2)
@@ -252,12 +192,12 @@ def freq_sweep(fc=0.003, n_samp=4096, n_sweep=None):
 	filt1 = filters.BasicOnePole(fc)
 	filt2 = filters.TrapzOnePole(fc)
 	
-	for n, sinFreq in enumerate(f):
+	for n, sin_freq in enumerate(f):
 		
-		if sinFreq == 0:
+		if sin_freq == 0:
 			x = np.ones(n_samp)
 		else:
-			x = gen_sine(sinFreq, n_samp)
+			x = gen_sine(sin_freq, n_samp)
 		
 		filt1.z1 = 0.0
 		filt2.s = 0.0
@@ -287,7 +227,7 @@ def freq_sweep(fc=0.003, n_samp=4096, n_sweep=None):
 	plt.grid()
 
 
-def plot_nonlin_filter(fc=0.1, fSaw=0.01, res=1.5, gain=2.0, n_samp=2048):
+def plot_nonlin_filter(fc=0.1, f_saw=0.01, res=1.5, gain=2.0, n_samp=2048):
 	
 	filts = [
 		{'name': '1P Linear', 'filt': filters.TrapzOnePole(fc), 'invert': False},
@@ -305,11 +245,13 @@ def plot_nonlin_filter(fc=0.1, fSaw=0.01, res=1.5, gain=2.0, n_samp=2048):
 		{'name': 'SVF Nonlin, res limit', 'filt': filters.NonlinSvf(fc, res, res_limit='hard'), 'invert': False},
 		{'name': 'SVF Nonlin, tanh res', 'filt': filters.NonlinSvf(fc, res, res_limit=None, fb_nonlin=True), 'invert': False},
 	]
-	
-	x = gen_saw(fSaw, n_samp) * gain
+
+	# FIXME: 'SVF Nonlin, tanh res' blows up if gain is higher
+
+	x = gen_saw(f_saw, n_samp) * gain * 0.5
 	
 	X, f = do_fft(x, n_fft=n_samp, window=True)
-	X = to_dB(X)
+	X = to_dB(np.abs(X))
 	
 	for filt in filts:
 		
@@ -319,7 +261,7 @@ def plot_nonlin_filter(fc=0.1, fSaw=0.01, res=1.5, gain=2.0, n_samp=2048):
 			y = -y
 		
 		Y, _ = do_fft(y, n_fft=n_samp, window=True)
-		Y = to_dB(Y)
+		Y = to_dB(np.abs(Y))
 		
 		filt['y'] = y
 		filt['Y'] = Y
@@ -328,16 +270,16 @@ def plot_nonlin_filter(fc=0.1, fSaw=0.01, res=1.5, gain=2.0, n_samp=2048):
 	
 	##### Plot filter responses #####
 
-	def plot_filters(filtsToPlot):
+	def plot_filters(filter_idxs_to_plot):
 		fig = plt.figure()
-		fig.suptitle('f_in=%g, fc=%g, res=%g, gain=%g' % (fSaw, fc, res, gain))
+		fig.suptitle('f_in=%g, fc=%g, res=%g, gain=%g' % (f_saw, fc, res, gain))
 		
 		plt.subplot(2, 1, 1)
 		
 		plt.plot(t, x, '.-')
 		legend = ['Input']
 		
-		for n in filtsToPlot:
+		for n in filter_idxs_to_plot:
 			plt.plot(t, filts[n]['y'], '.-')
 			legend += [filts[n]['name']]
 		
@@ -349,13 +291,13 @@ def plot_nonlin_filter(fc=0.1, fSaw=0.01, res=1.5, gain=2.0, n_samp=2048):
 		plt.subplot(2, 1, 2)
 		
 		plt.semilogx(f, X)
-		for n in filtsToPlot:
+		for n in filter_idxs_to_plot:
 			plt.semilogx(f, filts[n]['Y'])
 		
 		plt.grid()
 
 		#plt.subplot(3, 1, 3)
-		#for n in filtsToPlot:
+		#for n in filter_idxs_to_plot:
 		#	plt.semilogx(f, filts[n]['Y'] - X)
 
 		#plt.grid()
@@ -371,88 +313,8 @@ def plot_nonlin_filter(fc=0.1, fSaw=0.01, res=1.5, gain=2.0, n_samp=2048):
 	# SVF
 	plot_filters([9, 10, 11, 12, 13])
 
-	##### Print/plot convergence stats #####
-	
-	if False:
-		plt.figure()
-		
-		stats_1PLadder.output(bNewFig=False)
-		stats_1POta.output(bNewFig=False)
-		stats_1POtaNeg.output(bNewFig=False)
-		
-		plt.legend(['Ladder','OTA','OTA neg'])
-		plt.title('1-Pole Convergence')
-		plt.xlabel('# iterations')
-		plt.grid()
-	
-	#stats_LinearOuter.output(bNewFig=True)
 
-	def PlotCascadeStats(filt, name):
-
-		plt.figure()
-
-		plt.subplot(211)
-
-		filt.plot_outer.output(bNewFig=False)
-
-		plt.title(name + ' Convergence')
-		plt.grid()
-
-		plt.subplot(212)
-
-		for pole in filt.poles:
-			pole.stats.output(bNewFig=False)
-
-		plt.legend(['P1', 'P1', 'P3', 'P4'])
-		plt.xlabel('# iterations')
-		plt.grid()
-
-		plt.figure()
-		plt.subplot(121)
-
-		filt.plot_outer.output(bPrint=False, bPlotIter=False, bPlotEst=True, bNewFig=False)
-
-		plt.title(name + ' estimate')
-		plt.xlabel('Estimate')
-		plt.grid()
-
-		plt.subplot(122)
-
-		for pole in filt.poles:
-			pole.stats.output(bPrint=False, bPlotIter=False, bPlotEst=True, bNewFig=False)
-
-		plt.title(name + ' pole estimates')
-		plt.legend(['P1', 'P1', 'P3', 'P4'])
-		plt.xlabel('Estimate')
-		plt.ylabel('Final')
-		plt.grid()
-
-		plt.figure()
-		plt.subplot(121)
-
-		filt.plot_outer.output(bPrint=False, bPlotIter=False, bPlotEst=False, bPlotErr=True, bNewFig=False)
-
-		plt.title(name + ' estimate error')
-		plt.ylabel('Estimate Error')
-		plt.grid()
-		plt.xlim(0, 255)
-
-		plt.subplot(122)
-
-		for pole in filt.poles:
-			pole.stats.output(bPrint=False, bPlotIter=False, bPlotEst=False, bPlotErr=True, bNewFig=False)
-
-		plt.title(name + ' pole estimate errors')
-		plt.legend(['P1', 'P1', 'P3', 'P4'])
-		plt.grid()
-		plt.xlim(0, 255)
-
-	#PlotCascadeStats(filts[6]['filt'], 'Ladder')
-	#PlotCascadeStats(filts[7]['filt'], 'OTA')
-	#PlotCascadeStats(filts[8]['filt'], 'OTA neg')
-
-
-def plot_lin_4pole(fc=0.1, fSaw=0.01, res=0, n_samp=2048):
+def plot_lin_4pole(fc=0.1, f_saw=0.01, res=0, n_samp=2048):
 	
 	filt_iterative = filters.LinearCascadeFilterIterative(fc)
 	filt_solved = filters.LinearCascadeFilter(fc)
@@ -460,7 +322,7 @@ def plot_lin_4pole(fc=0.1, fSaw=0.01, res=0, n_samp=2048):
 	filt_iterative.res = res
 	filt_solved.res = res
 	
-	x = gen_saw(fSaw, n_samp)
+	x = gen_saw(f_saw, n_samp) * 0.5
 	
 	y_iterative = filt_iterative.process_buf(x)
 	y_solved    = filt_solved.process_buf(x)
@@ -471,14 +333,14 @@ def plot_lin_4pole(fc=0.1, fSaw=0.01, res=0, n_samp=2048):
 	amp_iterative, _ = do_fft(y_iterative, n_fft=n_samp, window=True)
 	amp_solved, _    = do_fft(y_solved, n_fft=n_samp, window=True)
 	
-	amp_x         = to_dB(amp_x)
-	amp_iterative = to_dB(amp_iterative)
-	amp_solved    = to_dB(amp_solved)
+	amp_x         = to_dB(np.abs(amp_x))
+	amp_iterative = to_dB(np.abs(amp_iterative))
+	amp_solved    = to_dB(np.abs(amp_solved))
 	
 	t = np.arange(n_samp)
 	
 	fig = plt.figure()
-	fig.suptitle('f_in=%g, fc=%g, res=%g' % (fSaw, fc, res))
+	fig.suptitle('f_in=%g, fc=%g, res=%g' % (f_saw, fc, res))
 	
 	plt.subplot(3, 1, 1)
 	plt.plot(t, x, '.-', t, y_iterative, '.-', t, y_solved, '.-')

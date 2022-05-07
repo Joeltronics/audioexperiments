@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 
-import numpy as np
-
+from copy import deepcopy
 from math import tanh, pi, pow
 import math
-from copy import deepcopy
+import numpy as np
+from typing import Optional, Tuple
 
 from solvers.iter_stats import IterStats
 import solvers.solvers as solvers
+
+
+solvers.legacy_max_num_iter = 20
+solvers.legacy_eps = 1e-5
 
 
 def freq_to_gain(wc):
@@ -50,9 +54,9 @@ def svf_res_q_mapping(res):
 	# Q = 0.5 # 0.5 (no res) to infinity (max res)
 	# q = 1. / Q # 2.0 to 0
 
-	adjRes = res/4.0 * 1.0/0.9
-	adjRes = math.sqrt(adjRes)
-	q = 2.0 - 2.0*adjRes
+	adj_res = res/4.0 * 1.0/0.9
+	adj_res = math.sqrt(adj_res)
+	q = 2.0 - 2.0*adj_res
 
 	if q < 0.0:
 		q = 0.0
@@ -67,59 +71,62 @@ def svf_res_q_mapping(res):
 # ######### One-pole filters ##########
 
 
-class OnePoleBase:
+class ZdfOnePoleBase:
 
 	def __init__(self, wc):
 		self.set_freq(wc)
 		self.s = 0.
 
 		# These are just for (attempted) improvements of estimator
-		self.prevX = 0.
-		self.prevEst = 0.
+		self.prev_x = 0.
+		self.prev_ext = 0.
 		self.prev_y = 0.
 
-
-	def set_freq(self, wc):
+	def set_freq(self, wc: float) -> None:
 		self.g = freq_to_gain(wc)
 		self.m = 1. / (self.g + 1.)
 
-	def get_estimate(self, x):
+	def get_estimate(self, x: float) -> float:
 
-		# calculate linear case
-		est = self.m * (self.g*x + self.s)
+		if True:
+			# calculate linear case
+			est = self.m * (self.g*x + self.s)
 
-		# integrator state
-		#est = self.s
+		elif False:
+			# integrator state
+			est = self.s
 
-		# Use previous
-		"""
-		if abs(self.prevX) > 0.01:
-			est = (self.prev_y)/(self.prevX) * x
 		else:
-			est = self.prev_y - self.prevX + x
-		#"""
+			# Use previous
+			if abs(self.prev_x) > 0.01:
+				est = (self.prev_y)/(self.prev_x) * x
+			else:
+				est = self.prev_y - self.prev_x + x
 
 		# Improve linear estimate with knowledge of previous
-		#est = self.prev_y - self.prevEst + est
+		#est = self.prev_y - self.prev_ext + est
 
-		self.prevX = x
-		self.prevEst = est
+		self.prev_x = x
+		self.prev_ext = est
 		return est
 
-	def process_tick(self, x):
+	def process_tick_no_state_update(self, x: float) -> Tuple[float, float]:
+		raise NotImplementedError('To be implemented by child class!')
+
+	def process_tick(self, x: float) -> float:
 		y, s = self.process_tick_no_state_update(x)
 		self.s = s
 		self.prev_y = y
 		return y
 
-	def process_buf(self, input_sig):
+	def process_buf(self, input_sig: np.ndarray) -> np.ndarray:
 		y = np.zeros_like(input_sig)
 		for n, x in enumerate(input_sig):
 			y[n] = self.process_tick(x)
 		return y
 
 
-class TrapzOnePole(OnePoleBase):
+class TrapzOnePole(ZdfOnePoleBase):
 
 	def __init__(self, wc):
 		super().__init__(wc)
@@ -137,7 +144,7 @@ class TrapzOnePole(OnePoleBase):
 		return y, s
 
 
-class TanhInputTrapzOnePole(OnePoleBase):
+class TanhInputTrapzOnePole(ZdfOnePoleBase):
 
 	def __init__(self, wc):
 		super().__init__(wc)
@@ -156,7 +163,7 @@ class TanhInputTrapzOnePole(OnePoleBase):
 		return y, s
 
 
-class LadderOnePole(OnePoleBase):
+class LadderOnePole(ZdfOnePoleBase):
 
 	def __init__(self, wc, iter_stats=None, use_newton=True):
 		super().__init__(wc)
@@ -174,7 +181,7 @@ class LadderOnePole(OnePoleBase):
 
 	def process_tick_no_state_update(self, x):
 
-		# y = g*(tanh(x) - tanh(y)) + s
+		# y = g*(tanh(x) - tanh(y)) + s`
 
 		def f(y): return y + self.g*(tanh(y) - tanh(x)) - self.s
 
@@ -192,7 +199,7 @@ class LadderOnePole(OnePoleBase):
 		return y, s
 
 
-class OtaOnePole(OnePoleBase):
+class OtaOnePole(ZdfOnePoleBase):
 
 	def __init__(self, wc, iter_stats=None, use_newton=True):
 		super().__init__(wc)
@@ -223,7 +230,7 @@ class OtaOnePole(OnePoleBase):
 		return y, s
 
 
-class OtaOnePoleNegative(OnePoleBase):
+class OtaOnePoleNegative(ZdfOnePoleBase):
 
 	def __init__(self, wc, iter_stats=None, use_newton=True):
 		super().__init__(wc)
@@ -266,7 +273,15 @@ class OtaOnePoleNegative(OnePoleBase):
 ########## Cascade filters ##########
 
 
-def linear_4p_equation(x, g, r, s, m=None, mg=None, mg4=None):
+def linear_4p_equation(
+		x: float,
+		g: float,
+		r: float,
+		s,
+		m: Optional[float] = None,
+		mg: Optional[float] = None,
+		mg4: Optional[float] = None,
+		) -> float:
 	# m, mg, mg4 can be provided to make computation very slightly more efficient
 	# (though this is Python, so that probably doesn't matter)
 
@@ -307,12 +322,17 @@ def linear_4p_equation(x, g, r, s, m=None, mg=None, mg4=None):
 
 class IterativeCascadeFilterBase:
 
-	def __init__(self, wc, res=0):
+	def __init__(self, wc, poles, stats_outer: IterStats, res=0):
+		""""""
+
+		self.stats_outer = stats_outer
+		self.poles = poles
 
 		self.iterate = True
-		self.set_freq(wc)
 		self.res = res
 		self.prev_y = 0
+
+		self.set_freq(wc)
 
 	def set_freq(self, wc):
 		for n in range(4):
@@ -325,22 +345,46 @@ class IterativeCascadeFilterBase:
 		return y
 
 	def get_estimate(self, x):
-		#return self.prev_y # bad
 		return linear_4p_equation(x, self.poles[0].g, self.res, [p.s for p in self.poles])
 
 	def process_tick(self, x):
 
-		yEst = self.get_estimate(x)
+		y_est = self.get_estimate(x)
 
 		if self.iterate:
+
+			"""
+			The iterative solving here is simple approach, but likely not the fastest way of doing it:
+			* Each pole solves itself iteratively until its error is low enough
+			* Then we do 1 iteration of the outer loop
+			* Then we re-solve each pole again
+			* And so on, until the outer loop error is low enough
+			
+			Alternatively, could:
+			* Each pole runs 1 iteration
+			* Then we do 1 iteration of the outer loop
+			* Then 1 more iteration of each pole again
+			* And so on, until all errors are low enough
+			
+			I suspect this may be faster overall, although it's also possible it could have stability issues
+			Would need to try it out and see.
+			
+			Related to this, the current way this uses IterStats doesn't really make sense.
+			I suspect the individual pole IterStats would converge relatively slowly on the first outer loop, but then 
+			faster on later iterations, as the outer loop converges as well.
+			
+			Or at least they could, except there's another problem here:
+			Right now the individual poles save no state information from the previous outer loop solves - they solve
+			from scratch every time!
+			"""
 
 			new_state = [0.0 for n in range(4)]
 
 			prev_abs_err = None
-			prev_y = yEst
+			prev_y = y_est
 
 			# Stats vars
-			estimate = yEst
+			estimate = y_est
 			errs = []
 			ys = [estimate]
 			success = False
@@ -349,14 +393,15 @@ class IterativeCascadeFilterBase:
 
 				# TODO: nonlinearities in output buffer path (which will feed back into resonance)
 
-				xr = x - (yEst * self.res)
+				xr = x - (y_est * self.res)
 
 				y = xr
 
 				for n, pole in enumerate(self.poles):
+					# TODO: use the result from the previous outer loop iteration as initial estimate (see block comment above)
 					y, new_state[n] = pole.process_tick_no_state_update(y)
 
-				yEst = y
+				y_est = y
 
 				ys += [y]
 
@@ -390,7 +435,7 @@ class IterativeCascadeFilterBase:
 					err=errs)
 
 		else:
-			y = x - (yEst * self.res)
+			y = x - (y_est * self.res)
 			for pole in self.poles:
 				y = pole.process_tick(y)
 
@@ -398,6 +443,7 @@ class IterativeCascadeFilterBase:
 		return y * res_to_gain_correction(fb_to_res(self.res))
 
 
+# TODO: this is almost entirely duplicated with IterativeCascadeFilterBase, use that instead
 class LinearCascadeFilterIterative:
 
 	def __init__(self, wc, res=0, stats_outer=None):
@@ -423,7 +469,7 @@ class LinearCascadeFilterIterative:
 
 	def process_tick(self, x):
 
-		out_est = self.prev_y # Not a great estimate
+		out_est = self.prev_y  # Not a great estimate
 		iterate = True
 
 		if iterate:
@@ -441,9 +487,9 @@ class LinearCascadeFilterIterative:
 
 			for n_iter in range(solvers.legacy_max_num_iter):
 
-				inputEstimate = x - (out_est * self.res)
+				input_estimate = x - (out_est * self.res)
 
-				y = inputEstimate
+				y = input_estimate
 
 				for n, pole in enumerate(self.poles):
 					y, new_state[n] = pole.process_tick_no_state_update(y)
@@ -493,6 +539,7 @@ class LinearCascadeFilterIterative:
 		return y * res_to_gain_correction(fb_to_res(self.res))
 
 
+# TODO: de-duplicate this with cascade.LinearCascadeFilter
 class LinearCascadeFilter:
 
 	def __init__(self, wc, res=0):
@@ -558,10 +605,9 @@ class LinearCascadeFilter:
 
 class LadderFilter(IterativeCascadeFilterBase):
 	def __init__(self, wc, res=0):
-		self.stats_outer = IterStats('Ladder Outer Loop')
 		pole_stats = [IterStats('Ladder pole %i' % (i + 1)) for i in range(4)]
-		self.poles = [LadderOnePole(wc, iter_stats=pole_stats[n]) for n in range(4)]
-		super().__init__(wc, res)
+		poles = [LadderOnePole(wc, iter_stats=pole_stats[n]) for n in range(4)]
+		super().__init__(wc=wc, res=res, poles=poles, stats_outer=IterStats('Ladder outer loop'))
 
 	def get_estimate(self, x):
 		# Pre-applying tanh to input makes it slightly more accurate than strictly linear case
@@ -571,19 +617,17 @@ class LadderFilter(IterativeCascadeFilterBase):
 class OtaFilter(IterativeCascadeFilterBase):
 
 	def __init__(self, wc, res=0):
-		self.stats_outer = IterStats('OTA outer loop')
 		pole_stats = [IterStats('OTA pole %i' % (i+1)) for i in range(4)]
-		self.poles = [OtaOnePole(wc, iter_stats=pole_stats[n]) for n in range(4)]
-		super().__init__(wc, res)
+		poles = [OtaOnePole(wc, iter_stats=pole_stats[n]) for n in range(4)]
+		super().__init__(wc=wc, res=res, poles=poles, stats_outer=IterStats('OTA outer loop'))
 
 
 class OtaNegFilter(IterativeCascadeFilterBase):
 
 	def __init__(self, wc, res=0):
-		self.stats_outer = IterStats('OTA neg outer loop')
-		poleStats = [IterStats('OTA neg pole %i' % (i+1)) for i in range(4)]
-		self.poles = [OtaOnePoleNegative(wc, iter_stats=poleStats[n]) for n in range(4)]
-		super().__init__(wc, res)
+		pole_stats = [IterStats('OTA neg pole %i' % (i+1)) for i in range(4)]
+		poles = [OtaOnePoleNegative(wc, iter_stats=pole_stats[n]) for n in range(4)]
+		super().__init__(wc=wc, res=res, poles=poles, stats_outer=IterStats('OTA neg outer loop'))
 
 
 ########## State-Variable Filters ##########
@@ -603,9 +647,9 @@ class BasicSvf:
 	def set_freq(self, wc):
 		self.f = 2.*math.sin(pi*wc)
 
-	def process_buf(self, input_sig, bAllOuts=False):
+	def process_buf(self, input_sig, b_all_outs=False):
 
-		if bAllOuts:
+		if b_all_outs:
 			y_lp, y_bp, y_hp = [np.zeros_like(input_sig) for n in range(2)]
 			for n, x in enumerate(input_sig):
 				y_lp[n], y_bp[n], y_hp[n] = self.process_tick(x)
@@ -617,8 +661,6 @@ class BasicSvf:
 			return y_lp
 
 	def process_tick(self, x):
-
-		bDebugErr = False
 
 		# Abbreviated names
 		f = self.f
@@ -641,6 +683,7 @@ class SvfLinear:
 
 		self.q = svf_res_q_mapping(res)
 
+		self.f = None
 		self.set_freq(wc)
 
 		self.stage1prev = 0.
