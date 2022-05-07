@@ -2,16 +2,14 @@
 
 import numpy as np
 from matplotlib import pyplot as plt
-from math import pi, tanh, pow
+from math import pi
 import math
-from collections import Counter
 
-from filters.zdf.iter_stats import IterStats
-import filters.zdf.solvers as solvers
+import solvers.solvers as solvers
 import filters.zdf.filters as filters
 
-solvers.max_n_iter = 20
-solvers.eps = 1e-5
+solvers.legacy_max_num_iter = 20
+solvers.legacy_eps = 1e-5
 
 """
 #eps = 1e-7 # -140 dB

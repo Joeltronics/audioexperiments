@@ -4,11 +4,9 @@ import numpy as np
 from matplotlib import pyplot as plt
 from math import pi
 import math
-from filters.zdf.iter_stats import IterStats
-from collections import Counter
-import filters.zdf.solvers as solvers
+from solvers.iter_stats import IterStats
+import solvers.solvers as solvers
 
-g_max_n_iter = 20
 
 #g_default_eps = 1e-7 # -140 dB
 #g_default_eps = 1e-6 # -120 dB
@@ -183,7 +181,9 @@ class LadderOnePole:
 
 			# y = g*(tanh(x) - tanh(y)) + s
 			# y + g*(tanh(y) - tanh(x)) - s = 0
-			f  = lambda y: y + self.g*(math.tanh(y) - tanh_x) - self.s
+
+			def f(y):
+				return y + self.g*(math.tanh(y) - tanh_x) - self.s
 			
 			# Initial estimate: calculate linear case
 			est = self.multiplier * (self.g*tanh_x + self.s)
@@ -196,10 +196,11 @@ class LadderOnePole:
 				# 0 = y + g*(tanh(y) - tanh(x)) - s
 				# d/dy = -g*(sech(y))^2 - 1
 				#      = -g*(cosh(y))^-2 - 1
-			
-				df = lambda y: self.g * math.pow(math.cosh(y), -2.0) + 1
+
+				def df(y):
+					return self.g * math.pow(math.cosh(y), -2.0) + 1
 				
-				yn = solvers.newton_raphson(f, df, est, stats=self.stats)
+				yn = solvers.solve_nr_legacy(f, df, est, iter_stats=self.stats)
 		
 			else:
 				
@@ -209,16 +210,16 @@ class LadderOnePole:
 				# y + g*tanh(y) = rhs
 				# y + g*tanh(y) - rhs = 0
 				
-				yn = solvers.iterative(f, initial_estimate=est, stats=self.stats)
-			
+				yn = solvers.solve_iterative_legacy(f, estimate=est, iter_stats=self.stats)
+
 			self.s = 2.0*yn - self.s
 			y[n] = yn
-		
+
 		return y
 
 
 class OtaOnePole:
-	
+
 	def __init__(self, wc, use_newton=True, stats=None):
 
 		self.use_newton = use_newton
@@ -230,55 +231,57 @@ class OtaOnePole:
 		self.multiplier = 1.0 / (self.g + 1.0)
 
 		print('OTA filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi_wc))
-	
+
 	def process(self, input_sig):
-		
+
 		y = np.zeros_like(input_sig)
-		
+
 		for n, x in enumerate(input_sig):
 
 			# y = g*tanh(x - y) + s
-			
+
 			# No good way to separate this
 			# Can rearrange a little bit though
-			
+
 			# y = g*tanh(x - y) + s
 			# y - g*tanh(x - y) = s
 			# y + g*tanh(y - x) = s
 			# y + g*tanh(y - x) - s = 0
-			
+
 			# Initial estimate: calculate linear case
 			est = self.multiplier * (self.g*x + self.s)
-			
+
 			# Initial estimate: integrator state
 			#est = self.s
-			
-			f  = lambda y: y + self.g*math.tanh(y - x) - self.s
-			
+
+			def f(y):
+				return y + self.g*math.tanh(y - x) - self.s
+
 			if self.use_newton:
-				
+
 				# Solve for
 				# 0 = y + g*tanh(y-x) - s
 				# d/dy = g*(sech(x-y))^2 + 1
 				#      = g*(cosh(x-y))^-2 + 1
-			
-				df = lambda y: self.g * math.pow(math.cosh(x - y), -2.0) + 1
-				
-				yn = solvers.newton_raphson(f, df, est, stats=self.stats)
-			
+
+				def df(y):
+					return self.g * math.pow(math.cosh(x - y), -2.0) + 1
+
+				yn = solvers.solve_nr_legacy(f, df, est, iter_stats=self.stats)
+
 			else:
-			
-				yn = solvers.iterative(f, initial_estimate=est, stats=self.stats)
-				
+
+				yn = solvers.solve_iterative_legacy(f, estimate=est, iter_stats=self.stats)
+
 			self.s = 2.0*yn - self.s
 			y[n] = yn
-		
+
 		return y
 
 class OtaOnePoleNegative:
-	
+
 	def __init__(self, wc, use_newton=True, stats=None):
-		
+
 		self.use_newton = use_newton
 		self.stats = stats
 
@@ -288,55 +291,57 @@ class OtaOnePoleNegative:
 		self.multiplier = 1.0 / (1.0 - self.g)
 
 		print('OTA negative filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi_wc))
-	
+
 	def process(self, input_sig):
-		
+
 		y = np.zeros_like(input_sig)
-		
+
 		for n, x in enumerate(input_sig):
 
 			# y = g*tanh(x - y) + s
-			
+
 			# No good way to separate this
 			# Can rearrange a little bit though
-			
+
 			# y = g*tanh(-(x + y)) + s
 			# y - g*tanh(-(x + y)) = s
 			# y + g*tanh(x + y) = s
 			# y + g*tanh(x + y) - s = 0
-			
-			
+
+
 			# Linear:
 			# y = g*(-x - y) + s
 			# y = -gx + gy + s
 			# y - gy = -gx + s
 			# y(1 - g) = -gx + s
 			# y = (-gx + s) / (1 - g)
-			
+
 			# Initial estimate: calculate linear case
 			# FIXME: this doesn't work
 			#est = (self.s - self.g*x) / (1.0 - self.g)
 			#est = self.multiplier * (self.s - self.g*x)
-			
+
 			# Initial estimate: integrator state
 			est = self.s
-			
-			f  = lambda y: y + self.g*math.tanh(x + y) - self.s
-			
+
+			def f(y):
+				return y + self.g*math.tanh(x + y) - self.s
+
 			if self.use_newton:
-				
+
 				# Solve for
 				# 0 = y + g*tanh(y-x) - s
 				# d/dy = g*(sech(x-y))^2 + 1
 				#      = g*(cosh(x-y))^-2 + 1
-			
-				df = lambda y: self.g * math.pow(math.cosh(x + y), -2.0) + 1
-				
-				yn = solvers.newton_raphson(f, df, est, stats=self.stats)
-			
+
+				def df(y):
+					return self.g * math.pow(math.cosh(x + y), -2.0) + 1
+
+				yn = solvers.solve_nr_legacy(f, df, est, iter_stats=self.stats)
+
 			else:
-			
-				yn = solvers.iterative(f, initial_estimate=est, stats=self.stats)
+
+				yn = solvers.solve_iterative_legacy(f, estimate=est, iter_stats=self.stats)
 				
 			self.s = 2.0*yn - self.s
 			y[n] = yn

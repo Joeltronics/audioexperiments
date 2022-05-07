@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 
+from solvers.iter_stats import IterStats
 
 from utils import utils
 
 from typing import Tuple, Iterable, Optional, Callable, Union
+
+
+# FIXME: this is bad, these are globals that get modified from outside the module
+# (these are used as a default argument, and modified after the module is imported - does this even work properly?)
+legacy_max_num_iter = 20
+legacy_eps = 1e-6
 
 
 def solve_fb_iterative(
@@ -13,7 +20,9 @@ def solve_fb_iterative(
 		eps: Optional[float]=1.0e-6,
 		max_num_iter=100,
 		throw_if_failed_converge=True,
-		return_vector=False) -> Union[Tuple[float, int], Iterable[float]]:
+		return_vector=False,
+		iter_stats: Optional[IterStats]=None,
+) -> Union[Tuple[float, int], Iterable[float]]:
 	"""
 	Solves f(y) = y
 
@@ -40,7 +49,10 @@ def solve_fb_iterative(
 		b0 = 1.
 		na1 = 0.
 
+	errs = [] if iter_stats is not None else None
+
 	n = 0
+	success = False
 	for n in range(1, max_num_iter + 1):
 
 		if yv is not None:
@@ -49,7 +61,12 @@ def solve_fb_iterative(
 		y_prev = y
 		y = f(y)
 
-		if eps and abs(y - y_prev) < eps:
+		err = abs(y - y_prev)
+		if errs is not None:
+			errs.append(err)
+
+		if eps and err < eps:
+			success = True
 			break
 
 		if rate_limit:
@@ -58,6 +75,15 @@ def solve_fb_iterative(
 	else:
 		if throw_if_failed_converge and eps:
 			raise RuntimeError('Failed to converge in %i iterations' % n)
+
+	if iter_stats is not None:
+		iter_stats.add(
+			success=success,
+			est=estimate,
+			n_iter= n + 1,
+			final=y,
+			err=errs
+		)
 
 	if yv is not None:
 		return yv
@@ -72,7 +98,9 @@ def solve_iterative(
 		eps: Optional[float]=1.0e-6,
 		max_num_iter=100,
 		throw_if_failed_converge=True,
-		return_vector=False) -> Union[Tuple[float, int], Iterable[float]]:
+		return_vector=False,
+		iter_stats: Optional[IterStats]=None,
+) -> Union[Tuple[float, int], Iterable[float]]:
 	"""
 	Solves f(x) = 0
 
@@ -104,7 +132,56 @@ def solve_iterative(
 		eps,
 		max_num_iter,
 		throw_if_failed_converge,
-		return_vector)
+		return_vector,
+		iter_stats=iter_stats)
+
+
+# TODO: consolidate this with solve_iterative()
+def solve_iterative_legacy(
+		f_zero,
+		estimate=None,
+		max_num_iter=legacy_max_num_iter,
+		eps=legacy_eps,
+		iter_stats: Optional[IterStats]=None,):
+	if estimate is None:
+		estimate = 0.0
+
+	y = estimate
+
+	errs = []
+
+	success = False
+	prev_abs_err = None
+	for iter_num in range(max_num_iter):
+
+		err = f_zero(y)
+
+		abs_err = abs(err)
+		errs += [abs_err]
+
+		if abs_err <= eps:
+			success = True
+			break
+
+		if (prev_abs_err is not None) and (abs_err >= prev_abs_err):
+			print('Warning: failed to converge! Falling back to initial estimate')
+			# return estimate
+			y = estimate
+			break
+
+		y = y - err
+
+		prev_abs_err = abs_err
+
+	if iter_stats is not None:
+		iter_stats.add(
+			success=success,
+			est=estimate,
+			n_iter=iter_num + 1,
+			final=y,
+			err=errs)
+
+	return y
 
 
 def solve_bisection(
@@ -187,7 +264,9 @@ def solve_nr(
 		eps: Optional[float]=1.0e-6,
 		max_num_iter=100,
 		throw_if_failed_converge=True,
-		return_vector=False) -> Union[Tuple[float, int], Iterable[float]]:
+		return_vector=False,
+		iter_stats: Optional[IterStats]=None,
+) -> Union[Tuple[float, int], Iterable[float]]:
 	"""
 	Solves f(x) = 0 using Newton-Raphson method
 
@@ -207,25 +286,100 @@ def solve_nr(
 	x = estimate
 	xv = [] if return_vector else None
 
+	errs = [] if iter_stats is not None else None
+
 	n = 0
-	for n in range(1, max_num_iter + 1):
+	success = False
+	iter_num = -1
+	for iter_num in range(1, max_num_iter + 1):
 
 		if xv is not None:
 			xv.append(x)
 
-		residue = f(x) / df(x)
+		fx = f(x)
+		dfx = df(x)
+
+		residue = fx / dfx
 		x -= residue
 
+		if errs is not None:
+			errs.append(abs(residue))
+
 		if eps and (abs(residue) < eps):
+			success = True
 			break
 	else:
 		if throw_if_failed_converge and eps:
-			raise RuntimeError('Failed to converge in %i iterations' % n)
+			raise RuntimeError('Failed to converge in %i iterations' % iter_num)
+
+	if iter_stats is not None:
+		iter_stats.add(
+			success=success,
+			est=estimate,
+			n_iter=iter_num + 1,
+			final=x,
+			err=errs
+		)
 
 	if xv is not None:
 		return xv
 	else:
 		return x, n
+
+
+# TODO: consolidate this with solve_nr()
+def solve_nr_legacy(
+		f,
+		df,
+		estimate,
+		max_num_iter=legacy_max_num_iter,
+		eps=legacy_eps,
+		iter_stats: Optional[IterStats]=None):
+
+	y = estimate
+
+	errs = []
+
+	success = False
+	prev_err = None
+	for iter_num in range(max_num_iter):
+
+		fy = f(y)
+
+		err = abs(fy)
+
+		errs += [err]
+
+		if err <= eps:
+			success = True
+			break
+
+		if (prev_err is not None) and (err >= prev_err):
+			print('Warning: failed to converge! Falling back to initial estimate')
+			y = estimate
+			break
+
+		dfy = df(y)
+
+		# Prevent divide-by-zero, or very shallow slopes
+		if dfy < eps:
+			# this shouldn't be possible with the functions we're actually using (derivative of tanh)
+			print("Warning: d/dy f(y=%f) = 0.0, can't solve Newton-Raphson" % y)
+			break
+
+		y = y - fy / dfy
+
+		prev_err = err
+
+	if iter_stats is not None:
+		iter_stats.add(
+			success=success,
+			est=estimate,
+			n_iter=iter_num + 1,
+			final=y,
+			err=errs)
+
+	return y
 
 
 def main(args):

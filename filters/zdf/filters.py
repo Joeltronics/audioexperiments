@@ -6,8 +6,8 @@ from math import tanh, pi, pow
 import math
 from copy import deepcopy
 
-from filters.zdf.iter_stats import IterStats
-import filters.zdf.solvers as solvers
+from solvers.iter_stats import IterStats
+import solvers.solvers as solvers
 
 
 def freq_to_gain(wc):
@@ -158,12 +158,12 @@ class TanhInputTrapzOnePole(OnePoleBase):
 
 class LadderOnePole(OnePoleBase):
 
-	def __init__(self, wc, stats=None, use_newton=True):
+	def __init__(self, wc, iter_stats=None, use_newton=True):
 		super().__init__(wc)
-		if stats is None:
-			self.stats = IterStats('1P Ladder')
+		if iter_stats is None:
+			self.iter_stats = IterStats('1P Ladder')
 		else:
-			self.stats = stats
+			self.iter_stats = iter_stats
 		#print('Ladder filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi*wc))
 
 		self.use_newton = use_newton
@@ -182,10 +182,10 @@ class LadderOnePole(OnePoleBase):
 
 		if self.use_newton:
 			def df(y): return self.g * math.pow(math.cosh(y), -2.0) + 1
-			y = solvers.newton_raphson(f, df, est, stats=self.stats)
+			y = solvers.solve_nr_legacy(f, df, est, iter_stats=self.iter_stats)
 
 		else:
-			y = solvers.iterative(f, initial_estimate=est, stats=self.stats)
+			y = solvers.solve_iterative_legacy(f, estimate=est, iter_stats=self.iter_stats)
 
 		s = 2.0*y - self.s
 
@@ -194,12 +194,12 @@ class LadderOnePole(OnePoleBase):
 
 class OtaOnePole(OnePoleBase):
 
-	def __init__(self, wc, stats=None, use_newton=True):
+	def __init__(self, wc, iter_stats=None, use_newton=True):
 		super().__init__(wc)
-		if stats is None:
-			self.stats = IterStats('1P OTA')
+		if iter_stats is None:
+			self.iter_stats = IterStats('1P OTA')
 		else:
-			self.stats = stats
+			self.iter_stats = iter_stats
 		self.use_newton = use_newton
 		#print('OTA filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi*wc))
 
@@ -213,10 +213,10 @@ class OtaOnePole(OnePoleBase):
 
 		if self.use_newton:
 			def df(y): return self.g * math.pow(math.cosh(x - y), -2.0) + 1
-			y = solvers.newton_raphson(f, df, est, stats=self.stats)
+			y = solvers.solve_nr_legacy(f, df, est, iter_stats=self.iter_stats)
 
 		else:
-			y = solvers.iterative(f, initial_estimate=est, stats=self.stats)
+			y = solvers.solve_iterative_legacy(f, estimate=est, iter_stats=self.iter_stats)
 
 		s = 2.0*y - self.s
 
@@ -225,12 +225,12 @@ class OtaOnePole(OnePoleBase):
 
 class OtaOnePoleNegative(OnePoleBase):
 
-	def __init__(self, wc, stats=None, use_newton=True):
+	def __init__(self, wc, iter_stats=None, use_newton=True):
 		super().__init__(wc)
-		if stats is None:
-			self.stats = IterStats('1P OTA Negative')
+		if iter_stats is None:
+			self.iter_stats = IterStats('1P OTA Negative')
 		else:
-			self.stats = stats
+			self.iter_stats = iter_stats
 		self.use_newton = use_newton
 		#print('OTA negative filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi*wc))
 
@@ -254,10 +254,10 @@ class OtaOnePoleNegative(OnePoleBase):
 
 		if self.use_newton:
 			def df(y): return self.g * math.pow(math.cosh(x + y), -2.0) + 1
-			y = solvers.newton_raphson(f, df, est, stats=self.stats)
+			y = solvers.solve_nr_legacy(f, df, est, iter_stats=self.iter_stats)
 
 		else:
-			y = solvers.iterative(f, initial_estimate=est, stats=self.stats)
+			y = solvers.solve_iterative_legacy(f, estimate=est, iter_stats=self.iter_stats)
 
 		s = 2.0*y - self.s
 		return y, s
@@ -340,12 +340,12 @@ class IterativeCascadeFilterBase:
 			prev_y = yEst
 
 			# Stats vars
-			initial_estimate = yEst
+			estimate = yEst
 			errs = []
-			ys = [initial_estimate]
+			ys = [estimate]
 			success = False
 
-			for n_iter in range(solvers.max_n_iter):
+			for n_iter in range(solvers.legacy_max_num_iter):
 
 				# TODO: nonlinearities in output buffer path (which will feed back into resonance)
 
@@ -364,7 +364,7 @@ class IterativeCascadeFilterBase:
 				abs_err = abs(err)
 				errs += [abs_err]
 
-				if abs_err < solvers.eps:
+				if abs_err < solvers.legacy_eps:
 					success = True
 					break
 
@@ -372,7 +372,7 @@ class IterativeCascadeFilterBase:
 					print('Warning: failed to converge! Falling back to initial estimate')
 					print('errs: ' + repr(errs))
 					print('ys: ' + repr(ys))
-					y = initial_estimate
+					y = estimate
 					break
 
 				prev_y = y
@@ -384,7 +384,7 @@ class IterativeCascadeFilterBase:
 			if self.stats_outer is not None:
 				self.stats_outer.add(
 					success=success,
-					est=initial_estimate,
+					est=estimate,
 					n_iter=n_iter+1,
 					final=y,
 					err=errs)
@@ -434,12 +434,12 @@ class LinearCascadeFilterIterative:
 			prev_y = out_est
 
 			# Stats vars
-			initial_estimate = out_est
+			estimate = out_est
 			errs = []
-			ys = [initial_estimate]
+			ys = [estimate]
 			success = False
 
-			for n_iter in range(solvers.max_n_iter):
+			for n_iter in range(solvers.legacy_max_num_iter):
 
 				inputEstimate = x - (out_est * self.res)
 
@@ -456,7 +456,7 @@ class LinearCascadeFilterIterative:
 				abs_err = abs(err)
 				errs += [abs_err]
 
-				if abs_err < solvers.eps:
+				if abs_err < solvers.legacy_eps:
 					success = True
 					break
 
@@ -464,8 +464,8 @@ class LinearCascadeFilterIterative:
 					print('Warning: failed to converge! Falling back to initial estimate')
 					print('errs: ' + repr(errs))
 					print('ys: ' + repr(ys))
-					#return initial_estimate
-					y = initial_estimate
+					#return estimate
+					y = estimate
 					break
 
 				prev_y = y
@@ -477,7 +477,7 @@ class LinearCascadeFilterIterative:
 			if self.stats_outer is not None:
 				self.stats_outer.add(
 					success=success,
-					est=initial_estimate,
+					est=estimate,
 					n_iter=n_iter+1,
 					final=y,
 					err=errs)
@@ -560,7 +560,7 @@ class LadderFilter(IterativeCascadeFilterBase):
 	def __init__(self, wc, res=0):
 		self.stats_outer = IterStats('Ladder Outer Loop')
 		pole_stats = [IterStats('Ladder pole %i' % (i + 1)) for i in range(4)]
-		self.poles = [LadderOnePole(wc, stats=pole_stats[n]) for n in range(4)]
+		self.poles = [LadderOnePole(wc, iter_stats=pole_stats[n]) for n in range(4)]
 		super().__init__(wc, res)
 
 	def get_estimate(self, x):
@@ -573,7 +573,7 @@ class OtaFilter(IterativeCascadeFilterBase):
 	def __init__(self, wc, res=0):
 		self.stats_outer = IterStats('OTA outer loop')
 		pole_stats = [IterStats('OTA pole %i' % (i+1)) for i in range(4)]
-		self.poles = [OtaOnePole(wc, stats=pole_stats[n]) for n in range(4)]
+		self.poles = [OtaOnePole(wc, iter_stats=pole_stats[n]) for n in range(4)]
 		super().__init__(wc, res)
 
 
@@ -582,7 +582,7 @@ class OtaNegFilter(IterativeCascadeFilterBase):
 	def __init__(self, wc, res=0):
 		self.stats_outer = IterStats('OTA neg outer loop')
 		poleStats = [IterStats('OTA neg pole %i' % (i+1)) for i in range(4)]
-		self.poles = [OtaOnePoleNegative(wc, stats=poleStats[n]) for n in range(4)]
+		self.poles = [OtaOnePoleNegative(wc, iter_stats=poleStats[n]) for n in range(4)]
 		super().__init__(wc, res)
 
 
@@ -774,7 +774,7 @@ class NonlinSvf:
 	Note: Unlimited resonance
 	"""
 
-	def __init__(self, wc, res=0, stats=None, res_limit=None, fb_nonlin=False):
+	def __init__(self, wc, res=0, iter_stats=None, res_limit=None, fb_nonlin=False):
 		# res_limit: one of None, 'tanh', 'hard'
 
 		if not res_limit:
@@ -792,8 +792,8 @@ class NonlinSvf:
 
 		self.fb_nonlin = fb_nonlin
 
-		if stats is None:
-			self.stats = IterStats('tanh SVF')
+		if iter_stats is None:
+			self.iter_stats = IterStats('tanh SVF')
 
 		self.q = svf_res_q_mapping(res)
 
@@ -828,7 +828,7 @@ class NonlinSvf:
 
 		# Now iterate
 
-		for n in range(solvers.max_n_iter):
+		for n in range(solvers.legacy_max_num_iter):
 
 			# TODO: exit early if close enough
 			#if abs_err < solvers.eps:

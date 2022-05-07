@@ -4,8 +4,6 @@ import numpy as np
 from matplotlib import pyplot as plt
 from collections import Counter
 
-import filters.zdf.solvers as solvers
-
 # TODO: currently there is no way to separate stats from each (outer) iteration
 # (e.g. first outer iteration should maybe have separate stats)
 
@@ -64,9 +62,9 @@ class IterStats:
 		
 		if plot_iter:
 			
-			max_n_iter = solvers.max_n_iter
+			max_n_iter = max(n_iter)
 			
-			x = np.arange(1, max_n_iter+1)
+			x = np.arange(1, max_n_iter+2)
 			y = np.zeros_like(x)
 			
 			for n in range(max_n_iter):
