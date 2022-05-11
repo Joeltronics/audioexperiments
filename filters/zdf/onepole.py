@@ -12,12 +12,6 @@ import solvers.solvers as solvers
 from utils.utils import to_dB
 
 
-#g_default_eps = 1e-7 # -140 dB
-#g_default_eps = 1e-6 # -120 dB
-g_default_eps = 1e-5 # -100 dB
-#g_default_eps = 1e-4 # -80 dB
-
-
 """
 Other future things to implement in single filter stage:
 - Using negative LP input
@@ -200,33 +194,33 @@ class LadderOnePole(ZdfOnePoleBase):
 	def process_tick_no_state_update(self, x):
 
 		# y = g*(tanh(x) - tanh(y)) + s
-		# y + g*(tanh(y) - tanh(x)) - s = 0
-
-		def f(y):
-			return y + self.g*(tanh(y) - tanh(x)) - self.s
 
 		est = self.get_estimate(x)
 
 		if self.use_newton:
 
+			# y = g*(tanh(x) - tanh(y)) + s
 			# 0 = y + g*(tanh(y) - tanh(x)) - s
-			# d/dy = -g*(sech(y))^2 - 1
-			#      = -g*(cosh(y))^-2 - 1
+
+			# d/dy = g*(sech(y))^2 + 1
+			#      = g*(cosh(y))^-2 + 1
+
+			def f(y):
+				return y + self.g * (tanh(y) - tanh(x)) - self.s
 
 			def df(y):
 				return self.g * math.pow(math.cosh(y), -2.0) + 1
 
-			y = solvers.solve_nr_legacy(f, df, est, iter_stats=self.iter_stats)
+			y, _ = solvers.solve_nr(f, df, estimate=est, iter_stats=self.iter_stats)
 
 		else:
 
 			# y = g*(tanh(x) - tanh(y)) + s
-			# y + g*tanh(y) = g*tanh(x) + s
 
-			# y + g*tanh(y) = rhs
-			# y + g*tanh(y) - rhs = 0
+			def f(y):
+				return self.g * (tanh(x) - tanh(y)) + self.s
 
-			y = solvers.solve_iterative_legacy(f, estimate=est, iter_stats=self.iter_stats)
+			y, _ = solvers.solve_fb_iterative(f, estimate=est, iter_stats=self.iter_stats)
 
 		s = 2.0*y - self.s
 
@@ -246,29 +240,37 @@ class OtaOnePole(ZdfOnePoleBase):
 	def process_tick_no_state_update(self, x):
 
 		# y = g*tanh(x - y) + s
-		# No good way to separate this
-		# Can rearrange a little bit though:
-		# y + g*tanh(y - x) - s = 0
-
-		def f(y):
-			return y + self.g*tanh(y - x) - self.s
 
 		est = self.get_estimate(x)
 
 		if self.use_newton:
+
+			# y = g*tanh(x - y) + s
+			# No good way to separate this
+			# Can rearrange a little bit though:
+			# y + g*tanh(y - x) - s = 0
 
 			# Solve for
 			# 0 = y + g*tanh(y-x) - s
 			# d/dy = g*(sech(x-y))^2 + 1
 			#      = g*(cosh(x-y))^-2 + 1
 
+			def f(y):
+				return y + self.g * tanh(y - x) - self.s
+
 			def df(y):
 				return self.g * math.pow(math.cosh(x - y), -2.0) + 1
 
-			y = solvers.solve_nr_legacy(f, df, est, iter_stats=self.iter_stats)
+			y, _ = solvers.solve_nr(f, df, estimate=est, iter_stats=self.iter_stats)
 
 		else:
-			y = solvers.solve_iterative_legacy(f, estimate=est, iter_stats=self.iter_stats)
+
+			# y = g*tanh(x - y) + s
+
+			def f(y):
+				return self.g * tanh(x - y) + self.s
+
+			y, _ = solvers.solve_fb_iterative(f, estimate=est, iter_stats=self.iter_stats)
 
 		s = 2.0*y - self.s
 
@@ -301,10 +303,10 @@ class OtaOnePoleNegative(ZdfOnePoleBase):
 
 		est = self.get_estimate(x)
 
-		def f(y):
-			return y + self.g*tanh(x + y) - self.s
-
 		if self.use_newton:
+
+			def f(y):
+				return y + self.g * tanh(x + y) - self.s
 
 			# Solve for
 			# 0 = y + g*tanh(y-x) - s
@@ -314,10 +316,16 @@ class OtaOnePoleNegative(ZdfOnePoleBase):
 			def df(y):
 				return self.g * math.pow(math.cosh(x + y), -2.0) + 1
 
-			y = solvers.solve_nr_legacy(f, df, est, iter_stats=self.iter_stats)
+			y, _ = solvers.solve_nr(f, df, estimate=est, iter_stats=self.iter_stats)
 
 		else:
-			y = solvers.solve_iterative_legacy(f, estimate=est, iter_stats=self.iter_stats)
+
+			# y = g*tanh(-x - y) + s
+
+			def f(y):
+				return self.g * tanh(-x - y) + self.s
+
+			y, _ = solvers.solve_fb_iterative(f, estimate=est, iter_stats=self.iter_stats)
 
 		s = 2.0*y - self.s
 		return y, s

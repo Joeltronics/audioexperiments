@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
-import numpy as np
-from matplotlib import pyplot as plt
 from collections import Counter
+from matplotlib import pyplot as plt
+import numpy as np
+from typing import Iterable
+
 
 # TODO: currently there is no way to separate stats from each (outer) iteration
 # (e.g. first outer iteration should maybe have separate stats)
@@ -13,11 +15,8 @@ class IterStats:
 		self.stats = []
 		self.title = title
 	
-	def add(self, success, n_iter, est, final, err, input=None):
-		
-		if len(err) != n_iter:
-			print('len(err) != n_iter (%i != %i)' % (len(err), n_iter))
-	
+	def add(self, success: bool, n_iter: int, est: float, final: float, err: Iterable[float], input=None):
+		# TODO: use a dataclass for this
 		self.stats += [{
 			'success': success,
 			'n_iter': n_iter,
@@ -29,8 +28,10 @@ class IterStats:
 			'input': input
 		}]
 	
-	def output(self, bPrint=True, plot_iter=True, plot_est=False, plot_err = False, new_fig=True):
-		
+	def output(self, do_print=True, plot_iter=True, plot_est=False, plot_err=False, new_fig=True):
+
+		# TODO: option to provide axes to plot into
+
 		n_total = len(self.stats)
 		
 		# TODO: count successes & failures
@@ -49,7 +50,7 @@ class IterStats:
 		#init_diff = [abs(i['final'] - i['est']) for i in self.stats]
 		#init_diff_range = (min(init_errs), sum(init_errs) / n_total, max(init_errs))
 		
-		if bPrint:
+		if do_print:
 			print('')
 			print('Stats for ' + self.title + ':')
 			succ_counts = list(success_counter.items())

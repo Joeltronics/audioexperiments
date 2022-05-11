@@ -7,12 +7,6 @@ from utils import utils
 from typing import Tuple, Iterable, Optional, Callable, Union
 
 
-# FIXME: this is bad, these are globals that get modified from outside the module
-# (these are used as a default argument, and modified after the module is imported - does this even work properly?)
-legacy_max_num_iter = 20
-legacy_eps = 1e-6
-
-
 def solve_fb_iterative(
 		f: Callable[[float], float],
 		estimate: float,
@@ -22,6 +16,7 @@ def solve_fb_iterative(
 		throw_if_failed_converge=True,
 		return_vector=False,
 		iter_stats: Optional[IterStats]=None,
+		verbose=False,
 ) -> Union[Tuple[float, int], Iterable[float]]:
 	"""
 	Solves f(y) = y
@@ -69,6 +64,9 @@ def solve_fb_iterative(
 			success = True
 			break
 
+		if verbose:
+			print('iter %i: f(%g) = %g, err %g' % (n, y_prev, y, err))
+
 		if rate_limit:
 			y = y*b0 + y_prev*na1
 
@@ -100,6 +98,7 @@ def solve_iterative(
 		throw_if_failed_converge=True,
 		return_vector=False,
 		iter_stats: Optional[IterStats]=None,
+		verbose=False,
 ) -> Union[Tuple[float, int], Iterable[float]]:
 	"""
 	Solves f(x) = 0
@@ -122,66 +121,23 @@ def solve_iterative(
 	
 	define: g(x) = f(x) + x
 
+	Now solve for:
 	g(x) = x
 	"""
 
+	def g(x):
+		return f(x) + x
+
 	return solve_fb_iterative(
-		lambda x: f(x) + x,
-		estimate,
-		rate_limit,
-		eps,
-		max_num_iter,
-		throw_if_failed_converge,
-		return_vector,
-		iter_stats=iter_stats)
-
-
-# TODO: consolidate this with solve_iterative()
-def solve_iterative_legacy(
-		f_zero,
-		estimate=None,
-		max_num_iter=legacy_max_num_iter,
-		eps=legacy_eps,
-		iter_stats: Optional[IterStats]=None,):
-	if estimate is None:
-		estimate = 0.0
-
-	y = estimate
-
-	errs = []
-
-	success = False
-	prev_abs_err = None
-	for iter_num in range(max_num_iter):
-
-		err = f_zero(y)
-
-		abs_err = abs(err)
-		errs += [abs_err]
-
-		if abs_err <= eps:
-			success = True
-			break
-
-		if (prev_abs_err is not None) and (abs_err >= prev_abs_err):
-			print('Warning: failed to converge! Falling back to initial estimate')
-			# return estimate
-			y = estimate
-			break
-
-		y = y - err
-
-		prev_abs_err = abs_err
-
-	if iter_stats is not None:
-		iter_stats.add(
-			success=success,
-			est=estimate,
-			n_iter=iter_num + 1,
-			final=y,
-			err=errs)
-
-	return y
+		f=g,
+		estimate=estimate,
+		rate_limit=rate_limit,
+		eps=eps,
+		max_num_iter=max_num_iter,
+		throw_if_failed_converge=throw_if_failed_converge,
+		return_vector=return_vector,
+		iter_stats=iter_stats,
+		verbose=verbose)
 
 
 def solve_bisection(
@@ -199,7 +155,7 @@ def solve_bisection(
 	:param f:
 	:param estimate: initial estimate
 	:param init_range: initial range
-	:param interp: if true, interpolates; if false, performs naive bisection (average of 2 values)
+	:param interp: if true, interpolates (regula falsi); if false, performs naive bisection (average of 2 values)
 	:param eps: max absolute error; if None, will continue calculating until max_num_iter is reached
 	:param max_num_iter: Max number of iterations
 	:param throw_if_failed_converge: if True, will throw if fails to converge in max_num_iter (unless eps is None)
@@ -327,61 +283,6 @@ def solve_nr(
 		return x, n
 
 
-# TODO: consolidate this with solve_nr()
-def solve_nr_legacy(
-		f,
-		df,
-		estimate,
-		max_num_iter=legacy_max_num_iter,
-		eps=legacy_eps,
-		iter_stats: Optional[IterStats]=None):
-
-	y = estimate
-
-	errs = []
-
-	success = False
-	prev_err = None
-	for iter_num in range(max_num_iter):
-
-		fy = f(y)
-
-		err = abs(fy)
-
-		errs += [err]
-
-		if err <= eps:
-			success = True
-			break
-
-		if (prev_err is not None) and (err >= prev_err):
-			print('Warning: failed to converge! Falling back to initial estimate')
-			y = estimate
-			break
-
-		dfy = df(y)
-
-		# Prevent divide-by-zero, or very shallow slopes
-		if dfy < eps:
-			# this shouldn't be possible with the functions we're actually using (derivative of tanh)
-			print("Warning: d/dy f(y=%f) = 0.0, can't solve Newton-Raphson" % y)
-			break
-
-		y = y - fy / dfy
-
-		prev_err = err
-
-	if iter_stats is not None:
-		iter_stats.add(
-			success=success,
-			est=estimate,
-			n_iter=iter_num + 1,
-			final=y,
-			err=errs)
-
-	return y
-
-
 def main(args):
 	"""
 	y = (x + 1)(x - 1)(x - 4) = (x^2 - 1)(x - 4) = x^3 - 4x^2 - x + 4
@@ -389,10 +290,10 @@ def main(args):
 	"""
 
 	def f(x):
-		return (x ** 3.) - 4.*(x ** 2.) - x + 4
+		return (x ** 3.) - 4.*(x ** 2.) - x + 4.
 
 	def df(x):
-		return 3.*(x ** 2.) - 8.*x - 1
+		return 3.*(x ** 2.) - 8.*x - 1.
 
 	print('')
 	print('f(x) = (x + 1)(x - 1)(x - 4) = x^3 - 4x^2 - x + 4')
