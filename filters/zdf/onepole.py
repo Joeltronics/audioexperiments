@@ -4,7 +4,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from math import pi, tanh, pow
 import math
-from typing import Tuple
+from typing import Tuple, Optional
 
 from generation.signal_generation import gen_sine, gen_saw
 from solvers.iter_stats import IterStats
@@ -48,21 +48,27 @@ Audio-rate FM
 """
 
 
+# TODO: implement ProcessorBase
+
+
 class ZdfOnePoleBase:
 
 	@staticmethod
 	def freq_to_gain(wc: float):
 		return math.tan(pi * wc)
 
-	def __init__(self, wc):
+	def __init__(self, wc, use_newton=False, iter_stats: Optional[IterStats] = None):
 		self.g = 0.
 		self.m = 0.
 		self.set_freq(wc)
 		self.s = 0.
 
+		self.use_newton = use_newton
+		self.iter_stats = iter_stats
+
 		# These are just for (attempted) improvements of estimator
 		self.prev_x = 0.
-		self.prev_ext = 0.
+		self.prev_est = 0.
 		self.prev_y = 0.
 
 	def set_freq(self, wc: float) -> None:
@@ -87,14 +93,54 @@ class ZdfOnePoleBase:
 				est = self.prev_y - self.prev_x + x
 
 		# Improve linear estimate with knowledge of previous
-		#est = self.prev_y - self.prev_ext + est
+		#est = self.prev_y - self.prev_est + est
 
 		self.prev_x = x
-		self.prev_ext = est
+		self.prev_est = est
 		return est
 
-	def process_tick_no_state_update(self, x: float) -> Tuple[float, float]:
-		raise NotImplementedError('To be implemented by child class!')
+	@staticmethod
+	def y_func(x: float, y: float, s: float, g: float) -> float:
+		""" Function to solve iteratively for filter output, y = f(y) """
+		raise NotImplementedError('To be implemented by child class if not using Newton and not overriding process_tick_no_state_update')
+
+	@staticmethod
+	def y_zero_func(x: float, y: float, s: float, g: float) -> float:
+		""" Function to solve iteratively for filter output, 0 = f(y) """
+		raise NotImplementedError('To be implemented by child class if using Newton and not overriding process_tick_no_state_update')
+
+	@staticmethod
+	def dy_zero_func(x: float, y: float, s: float, g: float) -> float:
+		""" Derivative of y_zero_func, for use with Newton-Raphson """
+		raise NotImplementedError('To be implemented by child class if using Newton and not overriding process_tick_no_state_update')
+
+	@staticmethod
+	def state_func(x: float, y: float, s: float, g: float) -> float:
+		""" Function to determine next state value """
+		return 2.0 * y - s
+
+	def process_tick_no_state_update(self, x: float, estimate=None) -> Tuple[float, float]:
+		"""
+		:returns: (output, state)
+		"""
+		if estimate is None:
+			estimate = self.get_estimate(x)
+		if self.use_newton:
+			y, _ = solvers.solve_nr(
+				lambda y: self.y_zero_func(x=x, y=y, s=self.s, g=self.g),
+				lambda y: self.dy_zero_func(x=x, y=y, s=self.s, g=self.g),
+				estimate=estimate,
+				iter_stats=self.iter_stats,
+			)
+		else:
+			y, _ = solvers.solve_fb_iterative(
+				lambda y: self.y_func(x=x, y=y, s=self.s, g=self.g),
+				estimate=estimate,
+				iter_stats=self.iter_stats,
+			)
+		s = self.state_func(x=x, y=y, s=self.s, g=self.g)
+
+		return y, s
 
 	def process_tick(self, x: float) -> float:
 		y, s = self.process_tick_no_state_update(x)
@@ -142,7 +188,7 @@ class TrapzOnePole(ZdfOnePoleBase):
 		if verbose:
 			print('Linear trapezoid filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi*wc))
 
-	def process_tick_no_state_update(self, x):
+	def process_tick_no_state_update(self, x, estimate=None):
 
 		# y = g*(x - y) + s
 		# y + g*y = g*x + s
@@ -164,7 +210,7 @@ class TanhInputTrapzOnePole(ZdfOnePoleBase):
 		if verbose:
 			print('Tanh input filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi*wc))
 
-	def process_tick_no_state_update(self, x):
+	def process_tick_no_state_update(self, x, estimate=None):
 
 		# y = g*(tanh(x) - y) + s
 		# y = (g*x + s) / (g + 1)
@@ -180,9 +226,11 @@ class TanhInputTrapzOnePole(ZdfOnePoleBase):
 class LadderOnePole(ZdfOnePoleBase):
 
 	def __init__(self, wc, iter_stats=None, use_newton=True, verbose=False):
-		super().__init__(wc)
-		self.iter_stats = IterStats('1P Ladder') if iter_stats is None else iter_stats
-		self.use_newton = use_newton
+
+		if iter_stats is None:
+			iter_stats = IterStats('1P Ladder')
+
+		super().__init__(wc, iter_stats=iter_stats, use_newton=use_newton)
 
 		if verbose:
 			print('Ladder filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi*wc))
@@ -191,98 +239,59 @@ class LadderOnePole(ZdfOnePoleBase):
 		# Pre-applying tanh to input seems to give slightly better estimate than strictly linear case
 		return super().get_estimate(tanh(x))
 
-	def process_tick_no_state_update(self, x):
+	@staticmethod
+	def y_func(x: float, y: float, s: float, g: float) -> float:
+		return g * (tanh(x) - tanh(y)) + s
 
-		# y = g*(tanh(x) - tanh(y)) + s
+	@staticmethod
+	def y_zero_func(x: float, y: float, s: float, g: float) -> float:
+		return y + g * (tanh(y) - tanh(x)) - s
 
-		est = self.get_estimate(x)
-
-		if self.use_newton:
-
-			# y = g*(tanh(x) - tanh(y)) + s
-			# 0 = y + g*(tanh(y) - tanh(x)) - s
-
-			# d/dy = g*(sech(y))^2 + 1
-			#      = g*(cosh(y))^-2 + 1
-
-			def f(y):
-				return y + self.g * (tanh(y) - tanh(x)) - self.s
-
-			def df(y):
-				return self.g * math.pow(math.cosh(y), -2.0) + 1
-
-			y, _ = solvers.solve_nr(f, df, estimate=est, iter_stats=self.iter_stats)
-
-		else:
-
-			# y = g*(tanh(x) - tanh(y)) + s
-
-			def f(y):
-				return self.g * (tanh(x) - tanh(y)) + self.s
-
-			y, _ = solvers.solve_fb_iterative(f, estimate=est, iter_stats=self.iter_stats)
-
-		s = 2.0*y - self.s
-
-		return y, s
+	@staticmethod
+	def dy_zero_func(x: float, y: float, s: float, g: float) -> float:
+		return g * math.pow(math.cosh(y), -2.0) + 1.0
 
 
 class OtaOnePole(ZdfOnePoleBase):
 
 	def __init__(self, wc, iter_stats=None, use_newton=True, verbose=False):
-		super().__init__(wc)
-		self.iter_stats = IterStats('1P OTA') if iter_stats is None else iter_stats
-		self.use_newton = use_newton
+
+		if iter_stats is None:
+			iter_stats = IterStats('1P OTA')
+
+		super().__init__(wc, iter_stats=iter_stats, use_newton=use_newton)
 
 		if verbose:
 			print('OTA filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi*wc))
 
-	def process_tick_no_state_update(self, x):
+	@staticmethod
+	def y_func(x: float, y: float, s: float, g: float) -> float:
+		return g * tanh(x - y) + s
+
+	@staticmethod
+	def y_zero_func(x: float, y: float, s: float, g: float) -> float:
 
 		# y = g*tanh(x - y) + s
+		# 0 = y + g*tanh(y - x) - s
 
-		est = self.get_estimate(x)
+		return y + g * tanh(y - x) - s
 
-		if self.use_newton:
-
-			# y = g*tanh(x - y) + s
-			# No good way to separate this
-			# Can rearrange a little bit though:
-			# y + g*tanh(y - x) - s = 0
-
-			# Solve for
-			# 0 = y + g*tanh(y-x) - s
-			# d/dy = g*(sech(x-y))^2 + 1
-			#      = g*(cosh(x-y))^-2 + 1
-
-			def f(y):
-				return y + self.g * tanh(y - x) - self.s
-
-			def df(y):
-				return self.g * math.pow(math.cosh(x - y), -2.0) + 1
-
-			y, _ = solvers.solve_nr(f, df, estimate=est, iter_stats=self.iter_stats)
-
-		else:
-
-			# y = g*tanh(x - y) + s
-
-			def f(y):
-				return self.g * tanh(x - y) + self.s
-
-			y, _ = solvers.solve_fb_iterative(f, estimate=est, iter_stats=self.iter_stats)
-
-		s = 2.0*y - self.s
-
-		return y, s
+	@staticmethod
+	def dy_zero_func(x: float, y: float, s: float, g: float) -> float:
+		# 0 = y + g*tanh(y-x) - s
+		# d/dy = g*(sech(x-y))^2 + 1
+		#      = g*(cosh(x-y))^-2 + 1
+		return g * math.pow(math.cosh(x - y), -2.0) + 1.0
 
 
 class OtaOnePoleNegative(ZdfOnePoleBase):
 
 	def __init__(self, wc, iter_stats=None, use_newton=True, verbose=False):
-		super().__init__(wc)
-		self.iter_stats = IterStats('1P OTA Negative') if iter_stats is None else iter_stats
-		self.use_newton = use_newton
+
+		if iter_stats is None:
+			iter_stats = IterStats('1P OTA')
+
+		super().__init__(wc, iter_stats=iter_stats, use_newton=use_newton)
 
 		if verbose:
 			print('OTA negative filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi*wc))
@@ -297,38 +306,20 @@ class OtaOnePoleNegative(ZdfOnePoleBase):
 		# integrator state
 		return self.s
 
-	def process_tick_no_state_update(self, x):
+	@staticmethod
+	def y_func(x: float, y: float, s: float, g: float) -> float:
+		return g * tanh(-x - y) + s
 
-		# y = g*tanh(-x - y) + s
+	@staticmethod
+	def y_zero_func(x: float, y: float, s: float, g: float) -> float:
+		return y + g * tanh(x + y) - s
 
-		est = self.get_estimate(x)
-
-		if self.use_newton:
-
-			def f(y):
-				return y + self.g * tanh(x + y) - self.s
-
-			# Solve for
-			# 0 = y + g*tanh(y-x) - s
-			# d/dy = g*(sech(x-y))^2 + 1
-			#      = g*(cosh(x-y))^-2 + 1
-
-			def df(y):
-				return self.g * math.pow(math.cosh(x + y), -2.0) + 1
-
-			y, _ = solvers.solve_nr(f, df, estimate=est, iter_stats=self.iter_stats)
-
-		else:
-
-			# y = g*tanh(-x - y) + s
-
-			def f(y):
-				return self.g * tanh(-x - y) + self.s
-
-			y, _ = solvers.solve_fb_iterative(f, estimate=est, iter_stats=self.iter_stats)
-
-		s = 2.0*y - self.s
-		return y, s
+	@staticmethod
+	def dy_zero_func(x: float, y: float, s: float, g: float) -> float:
+		# 0 = y + g*tanh(y-x) - s
+		# d/dy = g*(sech(x-y))^2 + 1
+		#      = g*(cosh(x-y))^-2 + 1
+		return g * math.pow(math.cosh(x + y), -2.0) + 1
 
 
 ########## Utilities & main/plot ##########
@@ -403,7 +394,7 @@ def impulse_response(fc=0.003, n_samp=4096, n_fft=None):
 	plt.subplot(211)
 
 	plt.semilogx(f, fft_y_lin, f, fft_y_tanh_input)
-	plt.legend(['Basic','Trapezoid'], loc=3)
+	plt.legend(['Basic', 'Trapezoid'], loc=3)
 	plt.title('fc = %f' % fc)
 	plt.grid()
 	plt.ylim(-12, 3)

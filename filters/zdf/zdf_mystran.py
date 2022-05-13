@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 
 """
-Note: besides the ladder filter ported from Teemu Voipo's C++ code,
-the rest (OTA stuff) is based on old code that is based on a wrong
-understanding:
-	- it uses simple z-domain one-pole lowpass instead of trapezoidal integration
-	- each stage uses tanh input, but not also tanh output feedback term (which requires another layer of numerical solving!)
+Ladder filter ported from Teemu Voipo's C code
+http://www.kvraudio.com/forum/viewtopic.php?f=33&t=349859
 """
-
-# Ladder filter ported from C code, from http://www.kvraudio.com/forum/viewtopic.php?f=33&t=349859
 
 # Original C header:
 """"
@@ -33,25 +28,6 @@ def tanhXdX(x):
 	denom = (15.0*a + 420.0)*a + 945.0
 	return numer / denom
 
-
-class OnePole:
-	def __init__(self):
-		self.z1 = 0.0
-	
-	def process(self, input, cutoff):
-		
-		a1 = np.exp(-2.0*pi * cutoff)
-		b0 = 1.0 - a1
-		
-		output = np.zeros(len(input))
-		
-		for n, samp in enumerate(input):
-			op = b0*samp + a1*self.z1
-			self.z1 = op
-			output[n] = op
-		
-		return output
-		
 	
 class TransistorLadder:
 	
@@ -119,116 +95,6 @@ class TransistorLadder:
 			out *= (1 + r)
 		
 		return out
-
-
-class OtaFilter:
-	# Non-ZDF
-	
-	def __init__(self):
-		self.prev = 0.0
-		self.z = np.zeros(4)
-		
-		self.recover_gain = True
-	
-	@staticmethod
-	def od(x):
-		return tanh(x)
-	
-	def process(self, input, cutoff, resonance):
-		
-		r = 6.25 * resonance
-		
-		output = np.zeros(len(input))
-		
-		for n, x in enumerate(input):
-			
-			xx = x - r*self.prev
-			
-			a1 = np.exp(-2.0*pi * cutoff)
-			b0 = 1.0 - a1
-			
-			z0 = b0*self.od(xx) + a1*self.z[0]
-			z1 = b0*self.od(z0) + a1*self.z[1]
-			z2 = b0*self.od(z1) + a1*self.z[2]
-			z3 = b0*self.od(z2) + a1*self.z[3]
-						
-			self.z[0] = z0
-			self.z[1] = z1
-			self.z[2] = z2
-			self.z[3] = z3
-			
-			self.prev = z3
-			output[n] = z3
-		
-		if self.recover_gain:
-			output *= (1 + r)
-		
-		return output
-
-
-class ZdfOtaFilter:
-	
-	def __init__(self):
-		self.prev = 0.0
-		self.z = np.zeros(4)
-		
-		self.max_n_iter = 4
-		self.eps = 1e-6
-		
-		self.recover_gain = True
-	
-	@staticmethod
-	def od(x):
-		return tanh(x)
-	
-	def process(self, input, cutoff, resonance):
-		
-		if (self.max_n_iter < 1):
-			print("ERROR: max_n_iter must be >= 1 (%f)" % self.max_n_iter)
-			self.max_n_iter = 1
-		elif (self.max_n_iter == 1):
-			print("WARNING: max_n_iter 1, not ZDF!")
-		
-		r = 16.0 * resonance
-		
-		output = np.zeros(len(input))
-		
-		actual_n_iter = np.zeros(len(input))
-		
-		for n, x in enumerate(input):
-			
-			fb = self.prev
-			for iter in range(self.max_n_iter):
-				xx = x - r*fb
-				
-				a1 = np.exp(-2.0*pi * cutoff)
-				b0 = 1.0 - a1
-				
-				z0 = b0*self.od(xx) + a1*self.z[0]
-				z1 = b0*self.od(z0) + a1*self.z[1]
-				z2 = b0*self.od(z1) + a1*self.z[2]
-				z3 = b0*self.od(z2) + a1*self.z[3]
-				
-				if abs(fb - z3) <= self.eps:
-					break
-				
-				fb = z3
-			
-			actual_n_iter[n] = (iter+1)
-			self.z[0] = z0
-			self.z[1] = z1
-			self.z[2] = z2
-			self.z[3] = z3
-			
-			op = z3
-			
-			self.prev = op
-			output[n] = op
-		
-		if self.recover_gain:
-			output *= (1 + r)
-		
-		return output, actual_n_iter
 
 
 def gen_phase(freq, n_samp, start_phase=0.0):
@@ -300,32 +166,19 @@ def plot_step(n_samp=512, fc=0.05, resonance=0.25, amplitude=0.1, n_iter=4):
 	x = np.concatenate((np.zeros(n_samp//2), np.zeros(n_samp//2) + 1.0))
 	
 	tl = TransistorLadder()
-	ota = ZdfOtaFilter()
-	
-	ota.max_n_iter = n_iter
 	
 	y_lad = tl.process(x*amplitude, fc, resonance)/amplitude
-	y_ota, actual_n_iter = ota.process(x*amplitude, fc, resonance)
-	y_ota /= amplitude
 	
 	plt.figure()
 
-	plt.subplot(2, 1, 1)
-
-	plt.plot(n, x, 'r-', n, y_lad, 'b-', n, y_ota, 'g-')
+	plt.plot(n, x, 'r-', n, y_lad, 'b-')
 	plt.title('Step response')
-	plt.legend(['Input','Ladder','OTA'], loc='upper left')
+	plt.legend(['Input', 'Ladder'], loc='upper left')
 	plt.grid()
 	if(resonance < 0.9):
 		plt.ylim([-0.25, 2.0])
 	plt.xlim([-n_samp/2, n_samp/2])
 
-	plt.subplot(2, 1, 2)
-
-	plt.plot(n, actual_n_iter, '.', label='OTA')
-	plt.ylim([np.min(actual_n_iter)-0.25, np.max(actual_n_iter)+0.25])
-	plt.ylabel('Number of iterations')
-	plt.legend()
 	plt.grid()
 
 
@@ -342,26 +195,18 @@ def freq_sweep(n_freq=128, n_samp=1024, fc=0.1, resonance=0.25, amplitude=0.1, n
 		x = (amplitude * np.sin(2*pi*gen_phase(f, n_samp))) if (f != 0) else (amplitude + np.zeros(n_samp))
 		
 		tl = TransistorLadder()
-		ota = ZdfOtaFilter()
 		
-		ota.max_n_iter = n_iter
-		
-		y_lad = tl.process(x, fc, resonance) 
-		y_ota, _ = ota.process(x, fc, resonance)
+		y_lad = tl.process(x, fc, resonance)
 		
 		x_rms = sqrt(np.mean(np.square(x)))
 		y_lad_rms = sqrt(np.mean(np.square(y_lad)))
-		y_ota_rms = sqrt(np.mean(np.square(y_ota)))
 		
 		Y_lad[n] = y_lad_rms/x_rms if (x_rms != 0.0) else 1.0
-		Y_ota[n] = y_ota_rms/x_rms if (x_rms != 0.0) else 1.0
 	
 	Y_lad = atodb(Y_lad, norm=False)
-	Y_ota = atodb(Y_ota, norm=False)
 	
 	plt.figure()
-	plt.semilogx(freqs, Y_lad, '.-', freqs, Y_ota, '.-')
-	plt.legend(['Ladder','OTA'], loc='lower right')
+	plt.semilogx(freqs, Y_lad, '.-')
 	plt.ylim([-40,20])
 	plt.grid()
 	plt.title("fc=%.2f, Res=%.2f" % (fc, resonance))

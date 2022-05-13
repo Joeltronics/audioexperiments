@@ -126,6 +126,9 @@ def linear_4p_equation(
 	return (mg * (mg * (mg * (mg * x + m * s[0]) + m * s[1]) + m * s[2]) + m * s[3]) / (1.0 + r * mg4)
 
 
+# TODO: implement ProcessorBase
+
+
 class IterativeCascadeFilterBase:
 	def __init__(self, wc, poles, stats_outer: IterStats, res=0):
 		""""""
@@ -183,7 +186,8 @@ class IterativeCascadeFilterBase:
 			from scratch every time!
 			"""
 
-			new_state = [0.0 for n in range(4)]
+			new_state = [0.0 for _ in range(4)]
+			last_iter_y = [None for _ in range(4)]
 
 			prev_abs_err = None
 			prev_y = y_est
@@ -202,9 +206,11 @@ class IterativeCascadeFilterBase:
 
 				y = xr
 
-				for n, pole in enumerate(self.poles):
-					# TODO: use the result from the previous outer loop iteration as initial estimate (see block comment above)
-					y, new_state[n] = pole.process_tick_no_state_update(y)
+				for pole_idx, pole in enumerate(self.poles):
+					estimate = last_iter_y[pole_idx]
+					this_pole_y, new_state[pole_idx] = pole.process_tick_no_state_update(y, estimate=estimate)
+					last_iter_y[pole_idx] = this_pole_y
+					y = this_pole_y
 
 				y_est = y
 
@@ -451,18 +457,11 @@ def do_fft(x, n_fft, window=False):
 def plot_nonlin_filter(fc=0.1, f_saw=0.01, res=1.5, gain=2.0, n_samp=2048):
 	
 	filts = [
-		{'name': '1P Linear', 'filt': TrapzOnePole(fc), 'invert': False},
-		{'name': '1P Tanh', 'filt': TanhInputTrapzOnePole(fc), 'invert': False},
-		{'name': '1P Ladder', 'filt': LadderOnePole(fc), 'invert': False},
-		{'name': '1P Ota', 'filt': OtaOnePole(fc), 'invert': False},
-		{'name': '1P Ota Negative', 'filt': OtaOnePoleNegative(fc), 'invert': True},
-		{'name': '4P Linear', 'filt': LinearCascadeFilter(fc, res), 'invert': False},
-		{'name': '4P Ladder', 'filt': LadderFilter(fc, res), 'invert': False},
-		{'name': '4P Ota', 'filt': OtaFilter(fc, res), 'invert': False},
-		{'name': '4P Ota Negative', 'filt': OtaNegFilter(fc, res), 'invert': False},
+		dict(name='4P Linear', filt=LinearCascadeFilter(fc, res)),
+		dict(name='4P Ladder', filt=LadderFilter(fc, res)),
+		dict(name='4P Ota', filt=OtaFilter(fc, res)),
+		dict(name='4P Ota Negative', filt=OtaNegFilter(fc, res)),
 	]
-
-	# FIXME: 'SVF Nonlin, tanh res' blows up if gain is higher
 
 	x = gen_saw(f_saw, n_samp) * gain * 0.5
 	
@@ -472,9 +471,6 @@ def plot_nonlin_filter(fc=0.1, f_saw=0.01, res=1.5, gain=2.0, n_samp=2048):
 	for filt in filts:
 		
 		y = filt['filt'].process_buf(x)
-		
-		if filt['invert']:
-			y = -y
 		
 		Y, _ = do_fft(y, n_fft=n_samp, window=True)
 		Y = to_dB(np.abs(Y))
@@ -486,45 +482,36 @@ def plot_nonlin_filter(fc=0.1, f_saw=0.01, res=1.5, gain=2.0, n_samp=2048):
 	
 	##### Plot filter responses #####
 
-	def plot_filters(filter_idxs_to_plot):
-		fig = plt.figure()
-		fig.suptitle('f_in=%g, fc=%g, res=%g, gain=%g' % (f_saw, fc, res, gain))
-		
-		plt.subplot(2, 1, 1)
-		
-		plt.plot(t, x, '.-')
-		legend = ['Input']
-		
-		for n in filter_idxs_to_plot:
-			plt.plot(t, filts[n]['y'], '.-')
-			legend += [filts[n]['name']]
-		
-		plt.legend(legend)
-		
-		plt.xlim([0, 256])
-		plt.grid()
-		
-		plt.subplot(2, 1, 2)
-		
-		plt.semilogx(f, X)
-		for n in filter_idxs_to_plot:
-			plt.semilogx(f, filts[n]['Y'])
-		
-		plt.grid()
+	fig = plt.figure()
+	fig.suptitle('Nonlinear filters')
 
-		#plt.subplot(3, 1, 3)
-		#for n in filter_idxs_to_plot:
-		#	plt.semilogx(f, filts[n]['Y'] - X)
+	plt.subplot(2, 1, 1)
 
-		#plt.grid()
-	
-	# 1-pole
-	#plot_filters([0, 2, 3])
-	#plot_filters(range(4))
-	
-	# 4-pole
-	plot_filters([5, 6, 7])
-	#plot_filters([5, 6, 7, 8])
+	plt.title('f_in=%g, fc=%g, res=%g, gain=%g' % (f_saw, fc, res, gain))
+
+	plt.plot(t, x, '.-', label='Input')
+
+	for filt in filts:
+		plt.plot(t, filt['y'], '.-', label=filt['name'])
+
+	plt.legend()
+
+	plt.xlim([0, 256])
+	plt.grid()
+
+	plt.subplot(2, 1, 2)
+
+	plt.semilogx(f, X)
+	for filt in filts:
+		plt.semilogx(f, filt['Y'], label=filt['name'])
+
+	plt.grid()
+
+	#plt.subplot(3, 1, 3)
+	#for n in filter_idxs_to_plot:
+	#	plt.semilogx(f, filts[n]['Y'] - X)
+
+	#plt.grid()
 
 
 def plot_lin_4pole(fc=0.1, f_saw=0.01, res=0, n_samp=2048):
@@ -553,11 +540,14 @@ def plot_lin_4pole(fc=0.1, f_saw=0.01, res=0, n_samp=2048):
 	t = np.arange(n_samp)
 	
 	fig = plt.figure()
-	fig.suptitle('f_in=%g, fc=%g, res=%g' % (f_saw, fc, res))
+	fig.suptitle('Linear filter method comparison')
 	
 	plt.subplot(3, 1, 1)
+
+	plt.title('f_in=%g, fc=%g, res=%g' % (f_saw, fc, res))
+
 	plt.plot(t, x, '.-', t, y_iterative, '.-', t, y_solved, '.-')
-	plt.legend(['Input', 'Linear iterative', 'Linear solved'])
+	plt.legend(['Input', 'Linear solved iteratively', 'Linear solved algebraically'])
 	plt.xlim([0, 256])
 	plt.grid()
 	
