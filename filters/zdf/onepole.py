@@ -563,6 +563,71 @@ def plot_impulse_response(fc=0.003, n_samp=4096, n_fft=None):
 	plt.grid()
 
 
+def plot_step(fc: float, n_samp_per_level: int):
+
+	levels = [
+		0, 0.1, 0.2, 0.3,
+		0, 0.25, 0.5, 0.75,
+		0, 0.5, 1.0, 1.5,
+		0, 1.0, 2.0, 3.0,
+		0, 2.0, 4.0, 6.0,
+		0, 4.0, 8.0, 12.0,
+	]
+
+	x = []
+	for level in levels:
+		x += [float(level)] * n_samp_per_level
+
+	x = np.array(x)
+
+	linear_filter = TrapzOnePole(fc)
+	y_linear = linear_filter.process_buf(x)
+
+	filter_specs = [
+		#dict(filt=TanhInputTrapzOnePole(fc), name='tanh input'),
+		dict(filt=LadderOnePole(fc), name='Ladder'),
+		dict(filt=OtaOnePole(fc), name='OTA'),
+		#dict(filt=OtaOnePoleNegative(fc), name='-OTA', negate=True),
+	]
+
+	fig, [ax_step, ax_slope, ax_err] = plt.subplots(3, 1)
+	fig.suptitle('Step responses')
+
+	#ax_step.plot(x, '-', label='Input')
+	#next(ax_slope._get_lines.prop_cycler)
+	#next(ax_err._get_lines.prop_cycler)
+
+	ax_step.plot(y_linear, '-', label='Linear')
+	ax_slope.plot(np.diff(y_linear), label='Linear')
+	next(ax_err._get_lines.prop_cycler)
+
+	for filter_spec in filter_specs:
+		filt = filter_spec['filt']
+		y = filt.process_buf(x)
+
+		if 'negate' in filter_spec and filter_spec['negate']:
+			y = -y
+
+		delta = np.diff(y)
+
+		err = y_linear - y
+
+		ax_step.plot(y, label=filter_spec['name'])
+		ax_err.plot(err, label=filter_spec['name'])
+		ax_slope.plot(delta, label=filter_spec['name'])
+
+	ax_step.grid()
+	ax_step.legend()
+
+	ax_slope.grid()
+	ax_slope.legend()
+	ax_slope.set_ylabel('Slope (sample delta)')
+
+	ax_err.grid()
+	ax_err.legend()
+	ax_err.set_ylabel('Error from linear')
+
+
 def plot(args=None):
 
 	#plot_impulse_response(fc=0.001, n_samp=32768)
@@ -570,6 +635,8 @@ def plot(args=None):
 
 	for use_newton in [False, True]:
 		nonlin_filter(fc=0.1, f_saw=0.01, gain=4.0, n_samp=2048, use_newton=use_newton)
+
+	plot_step(fc=0.1, n_samp_per_level=250)
 
 	plt.show()
 

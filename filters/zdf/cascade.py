@@ -514,7 +514,7 @@ def plot_nonlin_filter(fc=0.1, f_saw=0.01, res=1.5, gain=2.0, n_samp=2048):
 	#plt.grid()
 
 
-def plot_lin_4pole(fc=0.1, f_saw=0.01, res=0, n_samp=2048):
+def plot_lin_4pole(fc=0.1, f_saw=0.01, res=0.0, n_samp=2048):
 	
 	filt_iterative = LinearCascadeFilterIterative(fc)
 	filt_solved = LinearCascadeFilter(fc)
@@ -564,9 +564,72 @@ def plot_lin_4pole(fc=0.1, f_saw=0.01, res=0, n_samp=2048):
 	print('Max difference between iterative & solved: %f' % np.max(np.abs(y_diff)))
 
 
+def plot_step(fc: float, res: float, n_samp_per_level: int):
+	levels = [
+		0, 0.1, 0.2, 0.3,
+		0, 0.25, 0.5, 0.75,
+		0, 0.5, 1.0, 1.5,
+		0, 1.0, 2.0, 3.0,
+		0, 2.0, 4.0, 6.0,
+		0, 4.0, 8.0, 12.0,
+	]
+
+	x = []
+	for level in levels:
+		x += [float(level)] * n_samp_per_level
+
+	x = np.array(x)
+
+	linear_filter = LinearCascadeFilter(fc, res)
+	y_linear = linear_filter.process_buf(x)
+
+	filter_specs = [
+		dict(name='4P Ladder', filt=LadderFilter(fc, res)),
+		dict(name='4P Ota', filt=OtaFilter(fc, res)),
+	]
+
+	fig, [ax_step, ax_slope, ax_err] = plt.subplots(3, 1)
+	fig.suptitle('Step responses')
+
+	#ax_step.plot(x, '-', label='Input')
+	#next(ax_slope._get_lines.prop_cycler)
+	#next(ax_err._get_lines.prop_cycler)
+
+	ax_step.plot(y_linear, '-', label='Linear')
+	ax_slope.plot(np.diff(y_linear), label='Linear')
+	next(ax_err._get_lines.prop_cycler)
+
+	for filter_spec in filter_specs:
+		filt = filter_spec['filt']
+		y = filt.process_buf(x)
+
+		if 'negate' in filter_spec and filter_spec['negate']:
+			y = -y
+
+		delta = np.diff(y)
+
+		err = y_linear - y
+
+		ax_step.plot(y, label=filter_spec['name'])
+		ax_err.plot(err, label=filter_spec['name'])
+		ax_slope.plot(delta, label=filter_spec['name'])
+
+	ax_step.grid()
+	ax_step.legend()
+
+	ax_slope.grid()
+	ax_slope.legend()
+	ax_slope.set_ylabel('Slope (sample delta)')
+
+	ax_err.grid()
+	ax_err.legend()
+	ax_err.set_ylabel('Error from linear')
+
+
 def plot(args=None):
 	plot_nonlin_filter(fc=0.1, f_saw=0.01, gain=4.0, n_samp=2048)
 	plot_lin_4pole(fc=0.1, f_saw=0.01, res=1.5, n_samp=2048)
+	plot_step(fc=0.01, res=1.5, n_samp_per_level=1000)
 	plt.show()
 
 
