@@ -22,14 +22,13 @@ As of writing this, I haven't made any of that code public yet, but I hope to so
 ## How to use
 
 Various modules here have `main()` functions.
-For the sake of dealing with relative imports, all modules get run from `main.py`, with the module name as an argument -
+For the sake of dealing with relative imports, all modules get run from `main.py`, with the module name as subcommand -
 this will call the module's `main()`.
-(I'd probably do this differently if I was starting over now, but it's not really worth fixing at this point.) 
 
 Many modules also have separate `test()` and/or `plot()` functions. You can run these by adding `--test` or `--plot`.
 Some modules just have main call plot and/or test, but others have unique main functionality.
 
-Run with `--help` for a list of arguments that `main.py` takes, or `--mh` to view the module's arguments. 
+Run with `--help` for a list of arguments that `main.py` takes
 
 ### Examples
 

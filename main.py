@@ -3,19 +3,87 @@
 import argparse
 import importlib
 import inspect
+import sys
+
+
+MODULES = [
+	'analysis.distortion',
+	'analysis.freq_response',
+	'analysis.linearity',
+	'analysis.sine_to_phase',
+	'approx.cheby',
+	'approx.trig',
+	'compression.basic_compressors',
+	'delay_reverb.dattorro_reverb',
+	'delay_reverb.delay_line',
+	'delay_reverb.multitap_comb',
+	'filters.allpass',
+	'filters.biquad',
+	'filters.cascade',
+	'filters.crossover',
+	'filters.filter_base',
+	'filters.iir_filters',
+	'filters.one_pole',
+	'filters.peak_filters',
+	'filters.pink',
+	'filters.zdf.cascade',
+	'filters.zdf.onepole',
+	'filters.zdf.svf',
+	'filters.zdf.tanh_lin_approx',
+	'filters.zdf.zdf_mystran',
+	'generation.additive',
+	'generation.lfsr',
+	'generation.multi_lfsr',
+	'generation.polyblep',
+	'generation.signal_generation',
+	'overdrive.diode_clip',
+	'overdrive.overdrive',
+	'overdrive.tanh_fb',
+	'resampling.resamplers',
+	'solvers.solvers',
+	'utils.approx_equal',
+	'utils.utils',
+]
 
 
 def parse_args():
 	parser = argparse.ArgumentParser()
 
-	parser.add_argument('module')
-	parser.add_argument('-t', '--test', action='store_true', help="run module's unit tests")
-	parser.add_argument('-p', '--plot', action='store_true', help="run module's plot() function")
-	parser.add_argument('-v', '--verbose', action='store_true', help="verbose unit tests")
-	parser.add_argument('--long', action='store_true', help="long unit tests")
-	parser.add_argument('--mh', action='store_true', help="run module's --help")
+	test_parser = argparse.ArgumentParser(add_help=False)
+	test_parser.add_argument('-t', '--test', action='store_true', help="run unit tests")
+	test_parser.add_argument('-v', '--verbose', action='store_true', help="verbose unit tests")
+	test_parser.add_argument('--long', action='store_true', help="long unit tests")
 
-	return parser.parse_known_args()
+	plot_parser = argparse.ArgumentParser(add_help=False)
+	plot_parser.add_argument('-p', '--plot', action='store_true', help="run plot() function")
+
+	subparsers = parser.add_subparsers(dest='module_name')
+
+	for module_name in MODULES:
+
+		# Importing every single possible module is slow.
+		# If a module name isn't present in argv, then we know its subparser details won't be used anyway,
+		# so just add an empty subparser instead of importing the module
+		if module_name not in sys.argv:
+			subparsers.add_parser(module_name)
+			continue
+
+		module = importlib.import_module(module_name)
+
+		parents = []
+
+		if hasattr(module, 'test'):
+			parents.append(test_parser)
+
+		if hasattr(module, 'plot'):
+			parents.append(plot_parser)
+
+		if hasattr(module, 'get_parser'):
+			parents.append(module.get_parser())
+
+		subparsers.add_parser(module_name, parents=parents)
+
+	return parser.parse_args()
 
 
 def test(mod, module_name, verbose, long):
@@ -62,28 +130,32 @@ def module_main(mod, module_name, module_args):
 
 
 def main():
-	main_args, module_args = parse_args()
+	args = parse_args()
 
-	if main_args.long:
-		main_args.test = True
+	if 'long' not in args:
+		args.long = False
 
-	if main_args.test and main_args.plot:
+	if 'test' not in args:
+		args.test = False
+
+	if 'plot' not in args:
+		args.plot = False
+
+	if args.long:
+		args.test = True
+
+	if args.test and args.plot:
 		print('ERROR: cannot give both --test and --plot')
 		return -1
 
-	mod = importlib.import_module(main_args.module)
+	mod = importlib.import_module(args.module_name)
 
-	if main_args.mh:
-		module_args.append('--help')
-
-	if main_args.test:
-		return test(mod, module_name=main_args.module, verbose=main_args.verbose, long=main_args.long)
-
-	elif main_args.plot:
-		return plot(mod, module_name=main_args.module, module_args=module_args)
-
+	if args.test:
+		return test(mod, module_name=args.module_name, verbose=args.verbose, long=args.long)
+	elif args.plot:
+		return plot(mod, module_name=args.module_name, module_args=args)
 	else:
-		return module_main(mod, module_name=main_args.module, module_args=module_args)
+		return module_main(mod, module_name=args.module_name, module_args=args)
 
 
 if __name__ == "__main__":

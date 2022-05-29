@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import math
 from matplotlib import pyplot as plt
 import numpy as np
@@ -480,6 +481,16 @@ def _plot_cheby_functions():
 	plt.grid()
 
 
+def get_parser():
+	parser = argparse.ArgumentParser(add_help=False)
+	parser.add_argument('--py', dest='py_format', action='store_true', help='Print polynomials as python code')
+	parser.add_argument('--spaces', dest='tabs', action='store_false', help='Use spaces for python code')
+	# TODO
+	#parser.add_argument('-c', '--cpp', dest='c_format', action='store_true', help='Print polynomials as C/C++ code')
+
+	return parser
+
+
 def plot(args):
 	_plot_cheby_functions()
 	_plot_example()
@@ -487,12 +498,4 @@ def plot(args):
 
 
 def main(args):
-	import argparse
-	parser = argparse.ArgumentParser()
-	parser.add_argument('--py', dest='py_format', action='store_true', help='Print polynomials as python code')
-	parser.add_argument('--spaces', dest='tabs', action='store_false', help='Use spaces for python code')
-	# TODO
-	#parser.add_argument('-c', '--cpp', dest='c_format', action='store_true', help='Print polynomials as C/C++ code')
-	args = parser.parse_args(args)
-
 	_calc_cheby_fit(py_format=args.py_format, tabs=args.tabs)

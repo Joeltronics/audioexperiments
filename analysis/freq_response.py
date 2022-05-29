@@ -5,6 +5,7 @@
 See freq_response.md for details
 """
 
+import argparse
 from dataclasses import dataclass
 import fractions
 import math
@@ -1260,10 +1261,8 @@ def _do_main(trivial=True, linear=True, nonlin=True, do_noise=True):
 	plt.show()
 
 
-def main(args):
-	import argparse
-
-	parser = argparse.ArgumentParser()
+def get_parser():
+	parser = argparse.ArgumentParser(add_help=False)
 
 	grp = parser.add_argument_group('Standard analysis')
 	grp.add_argument('--noise', action='store_true', help='Include noise analysis (slow)')
@@ -1274,7 +1273,13 @@ def main(args):
 	grp = parser.add_argument_group('Other functions')
 	grp.add_argument('--detail', action='store_true')
 
-	args = parser.parse_args(args)
+	return parser
+
+
+def main(args):
+
+	if args.test:
+		return test(verbose=args.verbose, long=args.long)
 
 	if args.detail:
 		return _do_detail()

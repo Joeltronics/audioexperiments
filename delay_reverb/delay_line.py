@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 
-
-from processor import ProcessorBase
-from typing import Union, Optional
-import numpy as np
-from utils import utils
+import argparse
 import math
+from typing import Union, Optional
+
+from matplotlib import pyplot as plt
+import numpy as np
+import scipy.signal
+
+from generation.signal_generation import gen_freq_sweep_sine
+from processor import ProcessorBase
+from unit_test import unit_test, processor_unit_test
+from utils import utils
+from utils.approx_equal import approx_equal_vector
 
 from filters import allpass  # Somehow this works despite the circular dependency?!
 
@@ -274,10 +281,6 @@ class FIRDelayLine(ProcessorBase):
 
 
 def _delay_line_behavior_test(delay_len=123):
-	from generation.signal_generation import gen_freq_sweep_sine
-	from utils.approx_equal import approx_equal_vector
-	from unit_test import unit_test
-
 	sample_rate = 48000.
 	n_samp = 1024
 
@@ -311,7 +314,6 @@ def _delay_line_behavior_test(delay_len=123):
 
 
 def test(verbose=False):
-	from unit_test import unit_test, processor_unit_test
 	return unit_test.run_unit_tests([
 		processor_unit_test.ProcessorUnitTest("DelayLine ProcessorBase behavior", lambda: DelayLine(123)),
 		processor_unit_test.ProcessorUnitTest("Single sample DelayLine ProcessorBase behavior", lambda: DelayLine(1)),
@@ -325,14 +327,13 @@ def test(verbose=False):
 	], verbose=verbose)
 
 
-def plot(args):
-	from matplotlib import pyplot as plt
-	import scipy.signal
-	import argparse
-
-	parser = argparse.ArgumentParser()
+def get_parser():
+	parser = argparse.ArgumentParser(add_help=False)
 	parser.add_argument('--sanity', action='store_true')
-	args = parser.parse_args(args)
+	return parser
+
+
+def plot(args):
 
 	def plot_up(t, y, label, x=None, upsample_ratio=16, setup_plot=True):
 		if x is not None:

@@ -5,6 +5,8 @@ Simulates a tanh function with negative feedback
 """
 
 
+import argparse
+from matplotlib import pyplot as plt
 import numpy as np
 from scipy import integrate
 from utils import utils
@@ -253,8 +255,7 @@ class TanhFb(StatelessProcessorBase):
 		return y, dict(n_iter=n_iter)
 
 
-def _main_parse_args(args):
-	import argparse
+def get_parser():
 
 	# Open loop gain
 	# Use a relatively low value (100) because:
@@ -268,7 +269,7 @@ def _main_parse_args(args):
 
 	default_eps_dB = -120
 
-	parser = argparse.ArgumentParser()
+	parser = argparse.ArgumentParser(add_help=False)
 	parser.add_argument(
 		'--olg', type=float, default=float(default_olg),
 		help='Open-loop gain, default %i' % default_olg)
@@ -280,7 +281,11 @@ def _main_parse_args(args):
 		help='Precision, in dB, default %i' % default_eps_dB)
 	parser.add_argument('--xrange', type=float, default=0.5, help='Range to plot')
 	parser.add_argument('--nsamp', type=int, default=20001, help='# samples to plot')
-	args = parser.parse_args(args)
+
+	return parser
+
+
+def _validate_args(args):
 
 	if args.fbg < 0.:
 		raise ValueError('Feedback amount must be positive')
@@ -293,13 +298,9 @@ def _main_parse_args(args):
 	if args.precision >= 0.:
 		raise ValueError('precision must be negative dB value')
 
-	return args
-
 
 def plot(args):
-	from matplotlib import pyplot as plt
-
-	args = _main_parse_args(args)
+	_validate_args(args)
 
 	olg = args.olg
 	nfb = 1.0 / args.fbg
@@ -406,7 +407,7 @@ def main(args):
 
 	sanity_check()
 
-	args = _main_parse_args(args)
+	_validate_args(args)
 
 	olg = args.olg
 	gain_from_fb = args.fbg

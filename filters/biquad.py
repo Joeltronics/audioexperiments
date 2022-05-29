@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 
-from .filter_base import FilterBase, FilterForm
-from typing import Tuple
+import argparse
 from math import pi, sin, cos, sqrt
-from unit_test.processor_unit_test import FilterUnitTest
+from matplotlib import pyplot as plt
 import numpy as np
 import scipy.signal
+from typing import Tuple
+
+from .filter_base import FilterBase, FilterForm
+from generation import signal_generation, additive
 from overdrive import overdrive
-from utils import approx_equal, wavfile
+from unit_test.processor_unit_test import FilterUnitTest
+from unit_test import unit_test
+from utils import approx_equal, wavfile, plot_utils, utils
+
 
 _unit_tests = []
 
@@ -439,10 +445,6 @@ class OverdrivenInputBiquad(BiquadLowpass):
 
 
 def plot_nonlinear(out_file_path=None):
-	from generation import signal_generation, additive
-	from matplotlib import pyplot as plt
-	from utils import utils
-
 	freq = 220.
 
 	freq1, freq2, freq3 = freq + 0.6, freq + 0.291, freq - 0.75
@@ -538,7 +540,7 @@ def plot_nonlinear(out_file_path=None):
 
 
 def plot_freq_resp():
-	from utils import plot_utils
+	
 
 	one_over_sqrt2 = 1.0 / sqrt(2.0)  # 0.7071
 
@@ -591,26 +593,23 @@ def plot_freq_resp():
 			zoom=True, phase=True, group_delay=True)
 
 
+def get_parser():
+	parser = argparse.ArgumentParser(add_help=False)
+	parser.add_argument('outfile', nargs='?')
+	return parser
+
+
 def plot(args):
-	from matplotlib import pyplot as plt
 	plot_freq_resp()
 	plot_nonlinear()
 	plt.show()
 
 
 def test(verbose=False):
-	from unit_test import unit_test
 	return unit_test.run_unit_tests(_unit_tests, verbose=verbose)
 
 
 def main(args):
-	from matplotlib import pyplot as plt
-	import argparse
-
-	parser = argparse.ArgumentParser()
-	parser.add_argument('outfile', nargs='?')
-	args = parser.parse_args(args)
-
 	plot_freq_resp()
 	plot_nonlinear(args.outfile)
 

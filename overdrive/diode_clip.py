@@ -129,9 +129,9 @@ def calculate_clip_from_vd(circuit: DiodeCircuit, v_d: np.ndarray) -> Tuple[np.n
 	return Vin, Vout
 
 
-def plot(args):
+def get_parser():
 
-	parser = argparse.ArgumentParser()
+	parser = argparse.ArgumentParser(add_help=False)
 
 	group = parser.add_argument_group('Various diodes to plot')
 	group.add_argument('--type', dest='sweep_type', action='store_true', help='Plot various diode types')
@@ -153,7 +153,10 @@ def plot(args):
 	group.add_argument('--xrange', dest='x_range', default=3.0, type=float, help='Clip plot X range')
 	group.add_argument('--yrange', dest='y_range', default=2.0, type=float, help='Clip plot Y range')
 
-	args = parser.parse_args(args)
+	return parser
+
+
+def plot(args):
 
 	# TODO: can we check the group directly?
 	if not any((

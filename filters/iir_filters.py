@@ -119,16 +119,18 @@ class ButterworthHighpass(IIRFilter):
 			verbose=verbose)
 
 
+def get_parser():
+	import argparse
+	parser = argparse.ArgumentParser(add_help=False)
+	parser.add_argument('--butterworth', action='store_true')
+	parser.add_argument('--generic', action='store_true')
+	return parser
+
+
 def plot(args):
 	import numpy as np
 	from matplotlib import pyplot as plt
 	from utils.plot_utils import plot_freq_resp
-	import argparse
-
-	parser = argparse.ArgumentParser()
-	parser.add_argument('--butterworth', action='store_true')
-	parser.add_argument('--generic', action='store_true')
-	args = parser.parse_args(args)
 
 	if not args.butterworth and not args.generic:
 		args.butterworth = args.generic = True

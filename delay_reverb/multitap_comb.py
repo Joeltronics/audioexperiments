@@ -209,9 +209,8 @@ Essentially this is just 2 mixers, 1 at the input of the delay lines, and 1 at t
 """
 
 
-def parse_args(args):
-
-	parser = argparse.ArgumentParser()
+def get_parser():
+	parser = argparse.ArgumentParser(add_help=False)
 
 	parser.add_argument(
 		'-s', '--sample-rate', metavar='HZ', dest='sample_rate',
@@ -286,15 +285,7 @@ def parse_args(args):
 		help='Show phase plot',
 	)
 
-	args = parser.parse_args(args)
-
-	if not (-1.0 < args.feedback_1 < 1.0 and -1.0 < args.feedback_2 < 1.0):
-		raise ValueError('Feedbacks must each be in range (-1 < fb < 1)')
-
-	if not (-1.0 < (args.feedback_1 + args.feedback_2) < 1.0):
-		raise ValueError('Sum of feedback 1 + 2 must be in range (-1 < fb < 1)')
-
-	return args
+	return parser
 
 
 def determine_buffer_size(delay_time: int, fb: float, max_len: int, wet_mix=1.0, eps_dB=-120) -> int:
@@ -443,7 +434,11 @@ def do_plot(x: np.ndarray, y: np.ndarray, sample_rate: int, show_phase=False):
 
 def plot(args):
 
-	args = parse_args(args)
+	if not (-1.0 < args.feedback_1 < 1.0 and -1.0 < args.feedback_2 < 1.0):
+		raise ValueError('Feedbacks must each be in range (-1 < fb < 1)')
+
+	if not (-1.0 < (args.feedback_1 + args.feedback_2) < 1.0):
+		raise ValueError('Sum of feedback 1 + 2 must be in range (-1 < fb < 1)')
 
 	delay_1_samples_float = (args.delay_1_time / 1000.0) * args.sample_rate
 	delay_1_samples = int(round(delay_1_samples_float))
@@ -499,11 +494,5 @@ def plot(args):
 	plt.show()
 
 
-
 def main(args):
 	plot(args)
-
-
-if __name__ == "__main__":
-	import sys
-	main(sys.argv)

@@ -13,15 +13,18 @@ import numpy as np
 import os
 
 
-def main(args):
-	parser = argparse.ArgumentParser()
+def get_parser():
+	parser = argparse.ArgumentParser(add_help=False)
 	parser.add_argument('bits', nargs='+', type=int, help='Bit depths of cascaded LFSRs')
 	parser.add_argument('filename', type=str, help='Output filename')
 	#parser.add_argument('-f', '--freq', type=float, help='Fundamental frequency', default=441.0)
 	parser.add_argument('-s', '--samplerate', type=int, help='Sample rate (Hz)', default=44100)
 	parser.add_argument('-d', '--duration', type=float, help='Duration in seconds', default=10.)
 	parser.add_argument('--overwrite', action='store_true', help='Allow overwrite of output file')
-	args = parser.parse_args(args)
+	return parser
+
+
+def main(args):
 
 	final_lfsr_period = args.bits[-1]
 
