@@ -23,17 +23,20 @@ class FilterForm(Enum):
 
 
 class FilterBase(processor.ProcessorBase):
+
 	def set_freq(self, wc: float):
 		"""Set filter cutoff frequency
 
 		:param wc: normalized cutoff frequency, i.e. cutoff / sample rate
 		"""
+		# TODO: rename this set_cutoff
 		raise NotImplementedError('set_freq() to be implemented by the child class!')
 
 	def process_sample(self, sample: float) -> float:
 		raise NotImplementedError('process_sample() to be implemented by the child class!')
 
 	def process_freq_sweep(self, x: np.ndarray, wc_start: float, wc_end: float, log: bool=True) -> np.ndarray:
+		# TODO: rename this process_cutoff_sweep
 		if log:
 			wcs = np.logspace(math.log2(wc_start), math.log2(wc_end), len(x), base=2.0)
 		else:
@@ -60,6 +63,15 @@ class FilterBase(processor.ProcessorBase):
 			raise ValueError('Tried to set cutoff frequency above Nyquist')
 		elif wc <= 0.0:
 			raise ValueError('Tried to set negative cutoff frequency')
+
+
+class ResonantFilterBase(FilterBase):	
+	def set_resonance(self, resonance: float):
+		"""
+		Set filter resonance
+		:param resonance: >= 0, self-oscillation (infinite Q) at 1. Child class may internally limit maximum value.
+		"""
+		raise NotImplementedError('set_resonance() to be implemented by the child class!')
 
 
 class CascadedFilters(FilterBase):

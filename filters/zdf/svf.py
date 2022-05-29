@@ -24,6 +24,10 @@ MAX_NUM_ITER = 20
 EPS = 1e-5
 
 
+# TODO: implement ResonantFilterBase
+# (Need to figure out how to deal with this returning multiple outputs)
+
+
 def svf_freq_to_gain(wc: float) -> float:
 	return 2. * math.sin(pi * wc)
 
@@ -65,20 +69,20 @@ class BasicSvf:
 	def set_freq(self, wc):
 		self.f = svf_freq_to_gain(wc)
 
-	def process_buf(self, input_sig, b_all_outs=False):
+	def process_vector(self, input_sig, b_all_outs=False):
 
 		if b_all_outs:
 			y_lp, y_bp, y_hp = [np.zeros_like(input_sig) for n in range(2)]
 			for n, x in enumerate(input_sig):
-				y_lp[n], y_bp[n], y_hp[n] = self.process_tick(x)
+				y_lp[n], y_bp[n], y_hp[n] = self.process_sample(x)
 			return y_lp, y_bp, y_hp
 		else:
 			y_lp = np.zeros_like(input_sig)
 			for n, x in enumerate(input_sig):
-				y_lp[n], _, _ = self.process_tick(x)
+				y_lp[n], _, _ = self.process_sample(x)
 			return y_lp
 
-	def process_tick(self, x):
+	def process_sample(self, x):
 
 		# Abbreviated names
 		f = self.f
@@ -112,13 +116,13 @@ class SvfLinear:
 	def set_freq(self, wc):
 		self.f = svf_freq_to_gain(wc)
 
-	def process_buf(self, input_sig):
+	def process_vector(self, input_sig):
 		y = np.zeros_like(input_sig)
 		for n, x in enumerate(input_sig):
-			y[n], _, _ = self.process_tick(x)
+			y[n], _, _ = self.process_sample(x)
 		return y
 
-	def process_tick(self, x):
+	def process_sample(self, x):
 
 		zdf = True
 		#zdf = False
@@ -158,7 +162,7 @@ class SvfLinearInputMixing:
 	def set_freq(self, wc):
 		self.f = svf_freq_to_gain(wc)
 
-	def process_buf(self, in_lp, in_bp=None, in_hp=None):
+	def process_vector(self, in_lp, in_bp=None, in_hp=None):
 
 		n_samp = len(in_lp)
 
@@ -174,10 +178,10 @@ class SvfLinearInputMixing:
 
 		y = np.zeros_like(in_lp)
 		for n, x_lp, x_bp, x_hp in zip(range(n_samp), in_lp, in_bp, in_hp):
-			y[n] = self.process_tick(x_lp, x_bp, x_hp)
+			y[n] = self.process_sample(x_lp, x_bp, x_hp)
 		return y
 
-	def process_tick(self, x_lp, x_bp, x_hp):
+	def process_sample(self, x_lp, x_bp, x_hp):
 
 		#zdf = True
 		zdf = False
@@ -268,13 +272,13 @@ class NonlinSvf:
 	def set_freq(self, wc):
 		self.f = 2.*math.sin(pi*wc)
 
-	def process_buf(self, input_sig):
+	def process_vector(self, input_sig):
 		y = np.zeros_like(input_sig)
 		for n, x in enumerate(input_sig):
-			y[n], _, _ = self.process_tick(x)
+			y[n], _, _ = self.process_sample(x)
 		return y
 
-	def process_tick(self, x):
+	def process_sample(self, x):
 
 		# Abbreviated names
 		f = self.f * 0.5  # f always shows up below as f/2 (due to trapezoidal integration)
@@ -369,7 +373,7 @@ def plot_nonlin_filter(fc=0.1, f_saw=0.01, res=1.5, gain=2.0, n_samp=2048):
 
 	for filt in filts:
 
-		y = filt['filt'].process_buf(x)
+		y = filt['filt'].process_vector(x)
 
 		Y, _ = do_fft(y, n_fft=n_samp, window=True)
 		Y = to_dB(Y)

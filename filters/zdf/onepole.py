@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
-import numpy as np
-from matplotlib import pyplot as plt
-from math import pi, tanh, pow
+from math import pi, tanh, cosh
 import math
 from typing import Tuple, Optional
 
+import numpy as np
+from matplotlib import pyplot as plt
+
+from filters.filter_base import FilterBase
 from generation.signal_generation import gen_sine, gen_saw
 from solvers.iter_stats import IterStats
 import solvers.solvers as solvers
@@ -48,10 +50,7 @@ Audio-rate FM
 """
 
 
-# TODO: implement ProcessorBase
-
-
-class ZdfOnePoleBase:
+class ZdfOnePoleBase(FilterBase):
 
 	@staticmethod
 	def freq_to_gain(wc: float):
@@ -72,6 +71,7 @@ class ZdfOnePoleBase:
 		self.prev_y = 0.
 
 	def set_freq(self, wc: float) -> None:
+		self.throw_if_invalid_freq(wc)
 		self.g = self.freq_to_gain(wc)
 		self.m = 1. / (self.g + 1.)
 
@@ -99,27 +99,30 @@ class ZdfOnePoleBase:
 		self.prev_est = est
 		return est
 
+	# TODO: These conditionally-needed overrides confuse pylint/pylance
+	# Pass these functions in as constructor arguments instead
+
 	@staticmethod
 	def y_func(x: float, y: float, s: float, g: float) -> float:
 		""" Function to solve iteratively for filter output, y = f(y) """
-		raise NotImplementedError('To be implemented by child class if not using Newton and not overriding process_tick_no_state_update')
+		raise NotImplementedError('To be implemented by child class if not using Newton and not overriding process_sample_no_state_update')
 
 	@staticmethod
 	def y_zero_func(x: float, y: float, s: float, g: float) -> float:
 		""" Function to solve iteratively for filter output, 0 = f(y) """
-		raise NotImplementedError('To be implemented by child class if using Newton and not overriding process_tick_no_state_update')
+		raise NotImplementedError('To be implemented by child class if using Newton and not overriding process_sample_no_state_update')
 
 	@staticmethod
 	def dy_zero_func(x: float, y: float, s: float, g: float) -> float:
 		""" Derivative of y_zero_func, for use with Newton-Raphson """
-		raise NotImplementedError('To be implemented by child class if using Newton and not overriding process_tick_no_state_update')
+		raise NotImplementedError('To be implemented by child class if using Newton and not overriding process_sample_no_state_update')
 
 	@staticmethod
 	def state_func(x: float, y: float, s: float, g: float) -> float:
 		""" Function to determine next state value """
 		return 2.0 * y - s
 
-	def process_tick_no_state_update(self, x: float, estimate=None) -> Tuple[float, float]:
+	def process_sample_no_state_update(self, x: float, estimate=None) -> Tuple[float, float]:
 		"""
 		:returns: (output, state)
 		"""
@@ -142,32 +145,47 @@ class ZdfOnePoleBase:
 
 		return y, s
 
-	def process_tick(self, x: float) -> float:
-		y, s = self.process_tick_no_state_update(x)
+	def process_sample(self, x: float) -> float:
+		y, s = self.process_sample_no_state_update(x)
 		self.s = s
 		self.prev_y = y
 		return y
 
-	def process_buf(self, input_sig: np.ndarray) -> np.ndarray:
+	def process_vector(self, input_sig: np.ndarray) -> np.ndarray:
 		y = np.zeros_like(input_sig)
 		for n, x in enumerate(input_sig):
-			y[n] = self.process_tick(x)
+			y[n] = self.process_sample(x)
 		return y
 
+	def get_state(self) -> float:
+		return self.s
 
-class BasicOnePole:
+	def set_state(self, state: float):
+		self.s = state
+
+	def reset(self):
+		self.s = 0.0
+
+
+class BasicOnePole(FilterBase):
 	"""
 	Linear 1-pole lowpass filter, forward Euler
 	"""
 
-	def __init__(self, wc):
-		self.a1 = math.exp(-2.0*pi * wc)
-		self.b0 = 1.0 - self.a1
+	def __init__(self, wc, verbose=False):
+		self.a1 = self.b0 = 0.0
+		self.set_freq(wc)
+
 		self.z1 = 0.0
 		
-		print('Basic filter: wc=%f, a1=%f, b0=%f' % (wc, self.a1, self.b0))
+		if verbose:
+			print('Basic filter: wc=%f, a1=%f, b0=%f' % (wc, self.a1, self.b0))
 	
-	def process_buf(self, input_sig):
+	def set_freq(self, wc: float):
+		self.a1 = math.exp(-2.0*pi * wc)
+		self.b0 = 1.0 - self.a1
+
+	def process_vector(self, input_sig):
 		
 		y = np.zeros_like(input_sig)
 		
@@ -176,6 +194,15 @@ class BasicOnePole:
 			y[n] = self.z1
 		
 		return y
+
+	def get_state(self) -> float:
+		return self.z1
+
+	def set_state(self, state: float):
+		self.z1 = state
+
+	def reset(self):
+		self.z1 = 0.0
 
 
 class TrapzOnePole(ZdfOnePoleBase):
@@ -188,7 +215,7 @@ class TrapzOnePole(ZdfOnePoleBase):
 		if verbose:
 			print('Linear trapezoid filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi*wc))
 
-	def process_tick_no_state_update(self, x, estimate=None):
+	def process_sample_no_state_update(self, x, estimate=None):
 
 		# y = g*(x - y) + s
 		# y + g*y = g*x + s
@@ -210,7 +237,7 @@ class TanhInputTrapzOnePole(ZdfOnePoleBase):
 		if verbose:
 			print('Tanh input filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi*wc))
 
-	def process_tick_no_state_update(self, x, estimate=None):
+	def process_sample_no_state_update(self, x, estimate=None):
 
 		# y = g*(tanh(x) - y) + s
 		# y = (g*x + s) / (g + 1)
@@ -249,7 +276,7 @@ class LadderOnePole(ZdfOnePoleBase):
 
 	@staticmethod
 	def dy_zero_func(x: float, y: float, s: float, g: float) -> float:
-		return g * math.pow(math.cosh(y), -2.0) + 1.0
+		return g * pow(cosh(y), -2.0) + 1.0
 
 
 class OtaOnePole(ZdfOnePoleBase):
@@ -281,7 +308,7 @@ class OtaOnePole(ZdfOnePoleBase):
 		# 0 = y + g*tanh(y-x) - s
 		# d/dy = g*(sech(x-y))^2 + 1
 		#      = g*(cosh(x-y))^-2 + 1
-		return g * math.pow(math.cosh(x - y), -2.0) + 1.0
+		return g * pow(cosh(x - y), -2.0) + 1.0
 
 
 class OtaOnePoleNegative(ZdfOnePoleBase):
@@ -319,7 +346,7 @@ class OtaOnePoleNegative(ZdfOnePoleBase):
 		# 0 = y + g*tanh(y-x) - s
 		# d/dy = g*(sech(x-y))^2 + 1
 		#      = g*(cosh(x-y))^-2 + 1
-		return g * math.pow(math.cosh(x + y), -2.0) + 1
+		return g * pow(cosh(x + y), -2.0) + 1
 
 
 ########## Utilities & main/plot ##########
@@ -502,7 +529,7 @@ def nonlin_filter(fc=0.1, f_saw=0.01, gain=2.0, n_samp=2048, use_newton=True):
 
 		negate = filter['negate'] if 'negate' in filter else False
 
-		y = filt.process_buf(x)
+		y = filt.process_vector(x)
 
 		if negate:
 			y = -y
@@ -531,8 +558,8 @@ def plot_impulse_response(fc=0.003, n_samp=4096, n_fft=None):
 	filt1 = BasicOnePole(fc)
 	filt2 = TrapzOnePole(fc)
 
-	y1 = filt1.process_buf(x)
-	y2 = filt2.process_buf(x)
+	y1 = filt1.process_vector(x)
+	y2 = filt2.process_vector(x)
 
 	Y1, f = do_fft(y1, n_fft=n_fft, window=False)
 	Y2, _ = do_fft(y2, n_fft=n_fft, window=False)
@@ -581,7 +608,7 @@ def plot_step(fc: float, n_samp_per_level: int):
 	x = np.array(x)
 
 	linear_filter = TrapzOnePole(fc)
-	y_linear = linear_filter.process_buf(x)
+	y_linear = linear_filter.process_vector(x)
 
 	filter_specs = [
 		#dict(filt=TanhInputTrapzOnePole(fc), name='tanh input'),
@@ -603,7 +630,7 @@ def plot_step(fc: float, n_samp_per_level: int):
 
 	for filter_spec in filter_specs:
 		filt = filter_spec['filt']
-		y = filt.process_buf(x)
+		y = filt.process_vector(x)
 
 		if 'negate' in filter_spec and filter_spec['negate']:
 			y = -y
