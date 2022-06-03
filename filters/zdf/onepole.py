@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 from math import pi, tanh, cosh
 import math
 from typing import Tuple, Optional
@@ -7,6 +8,7 @@ from typing import Tuple, Optional
 import numpy as np
 from matplotlib import pyplot as plt
 
+from filters.filter_audio_test import test_non_resonant_filter
 from filters.filter_base import FilterBase
 from generation.signal_generation import gen_sine, gen_saw
 from solvers.iter_stats import IterStats
@@ -15,38 +17,12 @@ from utils.utils import to_dB
 
 
 """
-Other future things to implement in single filter stage:
-- Using negative LP input
-- With nonlinear buffers (e.g. BJT, FET, Darlington - also crossover distortion?)
-"""
-
-"""
-Test cases to determine best algorithms/approximations/estimates:
-
-Sawtooth
-
-Combination of sines
-	One paper I found used 110 Hz + 155 Hz, which seems good (IM is at 75/200, HD2 at 220/310)
-
-Variety of gain levels
-
-Variety of input frequencies
-
-Variety cutoff frequencies
-
-Instant transitions vs bandlimited
-
-Square waves
-	good case because they have fast transitions and are always at one end or the
-	other (in heavy distortion region), yet the distortion wouldn't affect the
-	wave if it weren't for the lowpass filtering
-
-Different stages
-1st stage might have different optimal parameters from 4th stage
-
-Different resonance levels, including self-osc
-
-Audio-rate FM
+Other future things to implement in single filter stages:
+- OTA output distortion (hard clip, or realistic)
+- 2040 style asymmetric distortion
+- Nonlinear buffers (e.g. FET, Darlington, maybe crossover distortion)
+- Buffers adding DC offset, and imperfect OTA bias (both of which cause CV leakage)
+- Slew limiting instead of proper integration (apparently this is one element of the Polivoks sound)
 """
 
 
@@ -92,7 +68,7 @@ class ZdfOnePoleBase(FilterBase):
 			else:
 				est = self.prev_y - self.prev_x + x
 
-		# Improve linear estimate with knowledge of previous
+		# TODO: improve linear estimate with knowledge of previous
 		#est = self.prev_y - self.prev_est + est
 
 		self.prev_x = x
@@ -156,6 +132,8 @@ class ZdfOnePoleBase(FilterBase):
 		for n, x in enumerate(input_sig):
 			y[n] = self.process_sample(x)
 		return y
+
+	# TODO: override process_freq_sweep, see if can improve performance a bit
 
 	def get_state(self) -> float:
 		return self.s
@@ -669,4 +647,25 @@ def plot(args=None):
 
 
 def main(args=None):
-	plot(args)
+	
+	fc = 1000 / 48000  # Doesn't matter, will get overwritten anyway
+	
+	filters = [
+		dict(filter=TrapzOnePole(fc), name='Linear'),
+		dict(filter=TanhInputTrapzOnePole(fc), name='tanh input'),
+		dict(filter=LadderOnePole(fc), name='Ladder'),
+		dict(filter=OtaOnePole(fc), name='OTA'),
+	]
+
+	for filter in filters:
+		name = filter['name']
+
+		filename = 'onepole_%s.wav' % name.lower().replace(' ', '_')
+
+		test_non_resonant_filter(
+			filter=filter['filter'],
+			filename=filename,
+			sample_rate_out=48000,
+			oversampling=4,
+			name=name,
+		)

@@ -6,6 +6,7 @@ from typing import Iterable, Optional
 import numpy as np
 from matplotlib import pyplot as plt
 
+from filters.filter_audio_test import test_resonant_filter
 from filters.filter_base import ResonantFilterBase
 from generation.signal_generation import gen_sine, gen_saw
 from solvers.iter_stats import IterStats
@@ -18,39 +19,9 @@ EPS = 1e-5
 
 
 """
-Other future things to implement in single filter stage:
-- With nonlinear buffers (e.g. BJT, FET, Darlington - also crossover distortion?)
-- Asymmetry
-- CV leakage
-"""
-
-"""
-Test cases to determine best algorithms/approximations/estimates:
-
-Sawtooth
-
-Combination of sines
-	One paper I found used 110 Hz + 155 Hz, which seems good (IM is at 75/200, HD2 at 220/310)
-
-Variety of gain levels
-
-Variety of input frequencies
-
-Variety cutoff frequencies
-
-Instant transisions vs bandlimited
-
-Square waves
-	good case because they have fast transitions and are always at one end or the
-	other (in heavy distortion region), yet the distortion wouldn't affect the
-	wave if it weren't for the lowpass filtering
-
-Different stages
-1st stage might have different optimal parameters from 4th stage
-
-Different resonance levels, including self-osc
-
-Audio-rate FM
+Other future things to implement in cascaded filter stages: (besides stuff that applies to individual stages)
+- mismatches between stages
+- inverting stages (which is important when there are asymmetries)
 """
 
 
@@ -175,8 +146,10 @@ class IterativeCascadeFilterBase(ResonantFilterBase):
 
 	def process_sample(self, x):
 
-		y_est = self.get_estimate(x)
+		# TODO: separate branch if self.fb == 0
 
+		y_est = self.get_estimate(x)
+	
 		if self.iterate:
 
 			"""
@@ -270,6 +243,8 @@ class IterativeCascadeFilterBase(ResonantFilterBase):
 
 		self.prev_y = y
 		return y * res_to_gain_correction(fb_to_res(self.fb))
+
+	# TODO: override process_freq_sweep, see if can improve performance a bit
 
 	def reset(self):
 		for pole in self.poles:
@@ -464,6 +439,8 @@ class LinearCascadeFilter(ResonantFilterBase):
 		s[3] = 2.0 * y3 - s[3]
 
 		return y * res_to_gain_correction(fb_to_res(self.fb))
+
+	# TODO: override process_freq_sweep, see if can improve performance a bit
 
 	def reset(self):
 		self.s = [0.0 for _ in range(4)]
@@ -692,4 +669,27 @@ def plot(args=None):
 
 
 def main(args=None):
-	plot(args)
+	
+	fc = 1000 / 48000  # Doesn't matter, will get overwritten anyway
+	
+	# TODO: test self_oscillation for some of these
+	filter_specs = [
+		dict(name='Linear', filter=LinearCascadeFilter(fc, resonance=0.0), self_oscillation=False),
+		dict(name='linear iterative', filter=LinearCascadeFilterIterative(fc, resonance=0.0), self_oscillation=False),
+		dict(name='4P Ladder', filter=LadderFilter(fc, resonance=0.0), self_oscillation=False),
+		dict(name='4P Ota', filter=OtaFilter(fc, resonance=0.0), self_oscillation=False),
+	]
+
+	for filter_spec in filter_specs:
+		name = filter_spec['name']
+
+		filename = 'cascade_%s.wav' % name.lower().replace(' ', '_')
+
+		test_resonant_filter(
+			filter=filter_spec['filter'],
+			filename=filename,
+			sample_rate_out=48000,
+			oversampling=4,
+			self_oscillation=filter_spec['self_oscillation'],
+			name=name,
+		)

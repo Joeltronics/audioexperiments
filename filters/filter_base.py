@@ -43,7 +43,7 @@ class FilterBase(processor.ProcessorBase):
 			wcs = np.linspace(wc_start, wc_end, len(x))
 
 		y = np.zeros_like(x)
-		for n, xx, wc in zip(range(len(x)), x, wcs):
+		for n, (xx, wc) in enumerate(zip(x, wcs)):
 			self.set_freq(wc)
 			y[n] = self.process_sample(xx)
 		return y

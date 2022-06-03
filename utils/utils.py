@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import datetime
+import sys
 from typing import Tuple, Any, List
 from generation import signal_generation
 from .approx_equal import *
@@ -9,6 +11,18 @@ from typing import Optional
 import numpy as np
 
 _unit_tests = []
+
+
+def print_timestamped(*args, **kwargs):
+	now = datetime.datetime.now()
+	# TODO: use strftime for this
+	timestamp_print = '[%2i:%02i:%02i.%03i]' % (
+		now.hour,
+		now.minute,
+		now.second,
+		now.microsecond // 1000
+	)
+	print(timestamp_print, *args, **kwargs)
 
 
 def is_even(value: int):

@@ -169,6 +169,8 @@ class LinearCascadeFilter(FilterBase):
 
 		return y * self.gain_corr
 
+	# TODO: override process_freq_sweep, see if can improve performance a bit
+
 
 def calc_analog_freq_resp(f: np.ndarray, fc: float, fb: float) -> np.ndarray:
 	"""
