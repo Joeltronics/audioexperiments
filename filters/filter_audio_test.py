@@ -3,7 +3,7 @@
 import datetime
 from multiprocessing import Pool
 import time
-from typing import Optional, Callable, Tuple, Union
+from typing import Optional, Callable, Tuple, Union, Iterable
 
 import numpy as np
 import scipy.signal
@@ -123,7 +123,7 @@ def generate_test_signal(num_samp: int, freq_Hz: float, sample_rate_Hz: float) -
 	return x
 
 
-def _test_filter(
+def _test_filter_at_gain_res(
 		filter_constructor: Callable[..., Union[FilterBase, ResonantFilterBase]],
 		x: np.ndarray,
 		wc_start: float,
@@ -159,12 +159,18 @@ def _test_filter(
 	return y, duration_seconds
 
 
-def test_non_resonant_filter(
-		filter_constructor: Callable[..., FilterBase],
+def _test_filter(
+		filter_constructor: Callable[..., Union[FilterBase, ResonantFilterBase]],
 		filename: str,
+		resonant: bool,
+		gain_resonance_pairs: Iterable[Tuple[float, Optional[float]]],
 		sample_rate_out=48000,
 		oversampling=4,
+		sig_freq=55.0,
+		fc_start=20000.,
+		fc_end=20.0,
 		name: Optional[str]=None,
+		sweep_gain=True,
 		pool: Optional[Pool]=None,
 		) -> None:
 
@@ -172,81 +178,110 @@ def test_non_resonant_filter(
 		name = filename
 
 	internal_sample_rate = sample_rate_out * oversampling
-	time_per_gain_seconds = 10.0
+	time_per_gain_seconds = 5.0
 	num_samp_per_gain = int(round(time_per_gain_seconds * internal_sample_rate))
 
-	gain_levels = [0.1, 1.0, 10.0]
-	num_samp = num_samp_per_gain * len(gain_levels)
+	num_samp = num_samp_per_gain * len(gain_resonance_pairs)
 	normalize_gain = True
 
-	fc_start = 32000.
-	fc_end = 16.125
-
-	saw_freq_Hz = 55.0
-	x = generate_test_signal(num_samp=num_samp_per_gain, freq_Hz=saw_freq_Hz, sample_rate_Hz=internal_sample_rate)
+	x = generate_test_signal(num_samp=num_samp_per_gain, freq_Hz=sig_freq, sample_rate_Hz=internal_sample_rate)
 
 	y = np.zeros(num_samp)
 
 	if pool is None:
 
-		for gain_idx, gain in enumerate(gain_levels):
+		for gain_idx, (gain, resonance) in enumerate(gain_resonance_pairs):
 
 			assert gain != 0.0
 
-			print_timestamped(f'Processing "{name}" at gain {gain}...')
+			if resonance is not None:
+				assert resonance >= 0.0
+				print_timestamped(f'Processing "{name}" at gain {gain}, resonance {resonance}...')
+			else:
+				print_timestamped(f'Processing "{name}" at gain {gain}...')
 
-			yg, duration_seconds = _test_filter(
+
+			yg, duration_seconds = _test_filter_at_gain_res(
 				filter_constructor=filter_constructor,
 				x=x,
 				wc_start=fc_start / internal_sample_rate,
 				wc_end=fc_end / internal_sample_rate,
+				resonance=resonance,
 				gain=gain,
-				resonance=None,
 				normalize_gain=normalize_gain,
 			)
 
 			length_seconds = len(yg) / internal_sample_rate
 			real_time_scale = duration_seconds / length_seconds
-			print_timestamped(f'Processing {length_seconds:.3f} seconds at {internal_sample_rate / 1000:g} kHz took {duration_seconds:.3f} seconds = {real_time_scale:.2f}x real-time')
+			print_timestamped(
+				f'Processing {length_seconds:.3f} seconds '
+				f'at {internal_sample_rate / 1000:g} kHz '
+				f'took {duration_seconds:.3f} seconds '
+				f'= {real_time_scale:.2f}x real-time')
 
 			start_idx = gain_idx * num_samp_per_gain
 			end_idx = start_idx + num_samp_per_gain
 
 			y[start_idx:end_idx] = yg
+
 	else:
 		async_results = []
 
-		for gain in gain_levels:
+		for gain, resonance in gain_resonance_pairs:
 
 			assert gain != 0.0
 
-			print_timestamped(f'Starting processing "{name}" at gain {gain}...')
+			if resonance is not None:
+				assert resonance >= 0.0
+				print_timestamped(f'Starting processing "{name}" at gain {gain}, resonance {resonance}...')
+			else:
+				print_timestamped(f'Starting processing "{name}" at gain {gain}...')
+
 			async_result = pool.apply_async(
-				_test_filter,
-				kwds = dict(
+				_test_filter_at_gain_res,
+				kwds=dict(
 					filter_constructor=filter_constructor,
 					x=x,
 					wc_start=fc_start / internal_sample_rate,
 					wc_end=fc_end / internal_sample_rate,
+					resonance=resonance,
 					gain=gain,
 					normalize_gain=normalize_gain,
 				)
 			)
 			async_results.append(async_result)
 
-		for gain_idx, (async_result, gain) in enumerate(zip(async_results, gain_levels)):
+		for gain_idx, (async_result, (gain, resonance)) in enumerate(zip(async_results, gain_resonance_pairs)):
 			yg, duration_seconds = async_result.get()
 
 			length_seconds = len(yg) / internal_sample_rate
 			real_time_scale = duration_seconds / length_seconds
-			print_timestamped(f'Processing "{name}" at gain {gain} for {length_seconds:.3f} seconds at {internal_sample_rate / 1000:g} kHz took {duration_seconds:.3f} seconds = {real_time_scale:.2f}x real-time')
+			if resonance is not None:
+				print_timestamped(
+					f'Processing "{name}" '
+					f'at gain {gain}, '
+					f'resonance {resonance} '
+					f'for {length_seconds:.3f} seconds '
+					f'at {internal_sample_rate / 1000:g} kHz '
+					f'took {duration_seconds:.3f} seconds '
+					f'= {real_time_scale:.2f}x real-time'
+				)
+			else:
+				print_timestamped(
+					f'Processing "{name}" '
+					f'at gain {gain} '
+					f'for {length_seconds:.3f} seconds '
+					f'at {internal_sample_rate / 1000:g} kHz '
+					f'took {duration_seconds:.3f} seconds '
+					f'= {real_time_scale:.2f}x real-time'
+				)
 
 			start_idx = gain_idx * num_samp_per_gain
 			end_idx = start_idx + num_samp_per_gain
 
 			y[start_idx:end_idx] = yg
 
-	print_timestamped(f'Downsampling "{name}"...')
+	print_timestamped(f'Downsampling {name}...')
 
 	y = _downsample(y, oversampling)
 
@@ -258,8 +293,42 @@ def test_non_resonant_filter(
 
 	y /= y_peak
 
-	print_timestamped(f'Saving "{filename}"')
+	print_timestamped(f'Saving {filename}')
 	wavfile.export_wavfile(y, sample_rate=sample_rate_out, filename=filename, allow_overwrite=True)
+
+
+def test_non_resonant_filter(
+		filter_constructor: Callable[..., FilterBase],
+		filename: str,
+		sample_rate_out=48000,
+		oversampling=4,
+		name: Optional[str]=None,
+		sweep_gain=True,
+		pool: Optional[Pool]=None,
+		) -> None:
+
+	if sweep_gain:
+		gain_resonance_pairs = [
+			(0.1, None),
+			(1.0, None),
+			(10.0, None),
+		]
+	else:
+		gain_resonance_pairs = [1.0, None]
+
+	_test_filter(
+		resonant=False,
+		filter_constructor=filter_constructor,
+		name=name,
+		filename=filename,
+		gain_resonance_pairs=gain_resonance_pairs,
+		sample_rate_out=sample_rate_out,
+		oversampling=oversampling,
+		fc_start=32000.,
+		fc_end=16.125,
+		sweep_gain=sweep_gain,
+		pool=pool,
+	)
 
 
 def test_resonant_filter(
@@ -272,13 +341,6 @@ def test_resonant_filter(
 		sweep_gain=True,
 		pool: Optional[Pool]=None,
 		) -> None:
-
-	if name is None:
-		name = filename
-
-	internal_sample_rate = sample_rate_out * oversampling
-	time_per_gain_seconds = 5.0
-	num_samp_per_gain = int(round(time_per_gain_seconds * internal_sample_rate))
 
 	if not sweep_gain:
 		gain_resonance_pairs = [
@@ -308,99 +370,16 @@ def test_resonant_filter(
 		]
 	gain_resonance_pairs = [pair for pair in gain_resonance_pairs if pair is not None]
 
-	num_samp = num_samp_per_gain * len(gain_resonance_pairs)
-	normalize_gain = True
-
-	fc_start = 32000.
-	fc_end = 31.25
-
-	saw_freq_Hz = 55.0
-	x = generate_test_signal(num_samp=num_samp_per_gain, freq_Hz=saw_freq_Hz, sample_rate_Hz=internal_sample_rate)
-
-	y = np.zeros(num_samp)
-
-	if pool is None:
-
-		for gain_idx, (gain, resonance) in enumerate(gain_resonance_pairs):
-
-			assert gain != 0.0
-
-			assert resonance >= 0.0
-
-			if not self_oscillation:
-				assert resonance < 1.0
-
-			print_timestamped(f'Processing "{name}" at gain {gain}, resonance {resonance}...')
-
-			yg, duration_seconds = _test_filter(
-				filter_constructor=filter_constructor,
-				x=x,
-				wc_start=fc_start / internal_sample_rate,
-				wc_end=fc_end / internal_sample_rate,
-				resonance=resonance,
-				gain=gain,
-				normalize_gain=normalize_gain,
-			)
-
-			length_seconds = len(yg) / internal_sample_rate
-			real_time_scale = duration_seconds / length_seconds
-			print_timestamped(f'Processing {length_seconds:.3f} seconds at {internal_sample_rate / 1000:g} kHz took {duration_seconds:.3f} seconds = {real_time_scale:.2f}x real-time')
-
-			start_idx = gain_idx * num_samp_per_gain
-			end_idx = start_idx + num_samp_per_gain
-
-			y[start_idx:end_idx] = yg
-
-	else:
-		async_results = []
-
-		for gain, resonance in gain_resonance_pairs:
-
-			assert gain != 0.0
-
-			assert resonance >= 0.0
-
-			if not self_oscillation:
-				assert resonance < 1.0
-
-			print_timestamped(f'Starting processing "{name}" at gain {gain}, resonance {resonance}...')
-			async_result = pool.apply_async(
-				_test_filter,
-				kwds=dict(
-					filter_constructor=filter_constructor,
-					x=x,
-					wc_start=fc_start / internal_sample_rate,
-					wc_end=fc_end / internal_sample_rate,
-					resonance=resonance,
-					gain=gain,
-					normalize_gain=normalize_gain,
-				)
-			)
-			async_results.append(async_result)
-
-		for gain_idx, (async_result, (gain, resonance)) in enumerate(zip(async_results, gain_resonance_pairs)):
-			yg, duration_seconds = async_result.get()
-
-			length_seconds = len(yg) / internal_sample_rate
-			real_time_scale = duration_seconds / length_seconds
-			print_timestamped(f'Processing "{name}" at gain {gain}, resonance {resonance} for {length_seconds:.3f} seconds at {internal_sample_rate / 1000:g} kHz took {duration_seconds:.3f} seconds = {real_time_scale:.2f}x real-time')
-
-			start_idx = gain_idx * num_samp_per_gain
-			end_idx = start_idx + num_samp_per_gain
-
-			y[start_idx:end_idx] = yg
-
-	print_timestamped(f'Downsampling {name}...')
-
-	y = _downsample(y, oversampling)
-
-	y_peak = max(np.amax(y), -np.amin(y))
-
-	assert y_peak >= 0
-	if y_peak == 0:
-		raise Exception('Filter did not return any signal!')
-
-	y /= y_peak
-
-	print_timestamped(f'Saving {filename}')
-	wavfile.export_wavfile(y, sample_rate=sample_rate_out, filename=filename, allow_overwrite=True)
+	_test_filter(
+		resonant=True,
+		filter_constructor=filter_constructor,
+		name=name,
+		filename=filename,
+		gain_resonance_pairs=gain_resonance_pairs,
+		sample_rate_out=sample_rate_out,
+		oversampling=oversampling,
+		fc_start=32000.,
+		fc_end=31.25,
+		sweep_gain=sweep_gain,
+		pool=pool,
+	)
