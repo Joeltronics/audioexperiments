@@ -230,11 +230,7 @@ class TanhInputTrapzOnePole(ZdfOnePoleBase):
 
 class LadderOnePole(ZdfOnePoleBase):
 
-	def __init__(self, wc, iter_stats=None, use_newton=True, verbose=False):
-
-		if iter_stats is None:
-			iter_stats = IterStats('1P Ladder')
-
+	def __init__(self, wc, iter_stats: Optional[IterStats] = None, use_newton=True, verbose=False):
 		super().__init__(wc, iter_stats=iter_stats, use_newton=use_newton)
 
 		if verbose:
@@ -257,17 +253,12 @@ class LadderOnePole(ZdfOnePoleBase):
 		return g * pow(cosh(y), -2.0) + 1.0
 
 
-class OtaOnePole(ZdfOnePoleBase):
-
-	def __init__(self, wc, iter_stats=None, use_newton=True, verbose=False):
-
-		if iter_stats is None:
-			iter_stats = IterStats('1P OTA')
-
+class IdealOtaOnePole(ZdfOnePoleBase):
+	def __init__(self, wc, iter_stats: Optional[IterStats] = None, use_newton=True, verbose=False):
 		super().__init__(wc, iter_stats=iter_stats, use_newton=use_newton)
 
 		if verbose:
-			print('OTA filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi*wc))
+			print('Ideal OTA filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi*wc))
 
 	@staticmethod
 	def y_func(x: float, y: float, s: float, g: float) -> float:
@@ -289,17 +280,13 @@ class OtaOnePole(ZdfOnePoleBase):
 		return g * pow(cosh(x - y), -2.0) + 1.0
 
 
-class OtaOnePoleNegative(ZdfOnePoleBase):
+class IdealOtaOnePoleNegative(ZdfOnePoleBase):
 
-	def __init__(self, wc, iter_stats=None, use_newton=True, verbose=False):
-
-		if iter_stats is None:
-			iter_stats = IterStats('1P OTA')
-
+	def __init__(self, wc, iter_stats: Optional[IterStats] = None, use_newton=True, verbose=False):
 		super().__init__(wc, iter_stats=iter_stats, use_newton=use_newton)
 
 		if verbose:
-			print('OTA negative filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi*wc))
+			print('Ideal OTA negative filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi*wc))
 
 	def get_estimate(self, x):
 
@@ -490,15 +477,15 @@ def nonlin_filter(fc=0.1, f_saw=0.01, gain=2.0, n_samp=2048, use_newton=True):
 	freq_plot.semilogx(f, fft_x, label='Input')
 
 	stats_ladder = IterStats('Ladder, ' + method_str)
-	stats_ota = IterStats('OTA, ' + method_str)
-	stats_ota_neg = IterStats('OTA Negative, ' + method_str)
+	stats_ota = IterStats('Ideal OTA, ' + method_str)
+	stats_ota_neg = IterStats('Ideal OTA Negative, ' + method_str)
 
 	filters = [
 		dict(filt=TrapzOnePole(fc), name='Linear', iter_stats=None),
 		#dict(filt=TanhInputTrapzOnePole(fc), name='tanh input', iter_stats=None),
 		dict(filt=LadderOnePole(fc, use_newton=use_newton, iter_stats=stats_ladder), name='Ladder'),
-		dict(filt=OtaOnePole(fc, use_newton=use_newton, iter_stats=stats_ota), name='OTA'),
-		dict(filt=OtaOnePoleNegative(fc, use_newton=use_newton, iter_stats=stats_ota_neg), name='-OTA', negate=True),
+		dict(filt=IdealOtaOnePole(fc, use_newton=use_newton, iter_stats=stats_ota), name='OTA'),
+		dict(filt=IdealOtaOnePoleNegative(fc, use_newton=use_newton, iter_stats=stats_ota_neg), name='-OTA', negate=True),
 	]
 
 	for filter in filters:
@@ -591,8 +578,8 @@ def plot_step(fc: float, n_samp_per_level: int):
 	filter_specs = [
 		#dict(filt=TanhInputTrapzOnePole(fc), name='tanh input'),
 		dict(filt=LadderOnePole(fc), name='Ladder'),
-		dict(filt=OtaOnePole(fc), name='OTA'),
-		#dict(filt=OtaOnePoleNegative(fc), name='-OTA', negate=True),
+		dict(filt=IdealOtaOnePole(fc), name='OTA'),
+		#dict(filt=IdealOtaOnePoleNegative(fc), name='-OTA', negate=True),
 	]
 
 	fig, [ax_step, ax_slope, ax_err] = plt.subplots(3, 1)
@@ -654,7 +641,7 @@ def main(args=None):
 		dict(filter=TrapzOnePole(fc), name='Linear'),
 		dict(filter=TanhInputTrapzOnePole(fc), name='tanh input'),
 		dict(filter=LadderOnePole(fc), name='Ladder'),
-		dict(filter=OtaOnePole(fc), name='OTA'),
+		dict(filter=IdealOtaOnePole(fc), name='OTA'),
 	]
 
 	for filter in filters:

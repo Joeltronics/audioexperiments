@@ -12,7 +12,7 @@ from generation.signal_generation import gen_sine, gen_saw
 from solvers.iter_stats import IterStats
 from utils.utils import to_dB
 
-from filters.zdf.onepole import ZdfOnePoleBase, TrapzOnePole, TanhInputTrapzOnePole, LadderOnePole, OtaOnePole, OtaOnePoleNegative
+from filters.zdf.onepole import ZdfOnePoleBase, TrapzOnePole, TanhInputTrapzOnePole, LadderOnePole, IdealOtaOnePole, IdealOtaOnePoleNegative
 
 MAX_NUM_ITER = 20
 EPS = 1e-5
@@ -110,7 +110,7 @@ class IterativeCascadeFilterBase(ResonantFilterBase):
 			self,
 			wc: float,
 			poles: Iterable[ZdfOnePoleBase],
-			stats_outer: IterStats,
+			stats_outer: Optional[IterStats]=None,
 			resonance=0.0,
 			):
 
@@ -146,100 +146,117 @@ class IterativeCascadeFilterBase(ResonantFilterBase):
 
 	def process_sample(self, x):
 
-		# TODO: separate branch if self.fb == 0
+		if not self.iterate:
+			y_est = self.get_estimate(x)
 
-		y_est = self.get_estimate(x)
-	
-		if self.iterate:
-
-			"""
-			The iterative solving here is simple approach, but likely not the fastest way of doing it:
-			* Each pole solves itself iteratively until its error is low enough
-			* Then we do 1 iteration of the outer loop
-			* Then we re-solve each pole again
-			* And so on, until the outer loop error is low enough
-
-			Alternatively, could:
-			* Each pole runs 1 iteration
-			* Then we do 1 iteration of the outer loop
-			* Then 1 more iteration of each pole again
-			* And so on, until all errors are low enough
-
-			I suspect this may be faster overall, although it's also possible it could have stability issues
-			Would need to try it out and see.
-
-			Related to this, the current way this uses IterStats doesn't really make sense.
-			I suspect the individual pole IterStats would converge relatively slowly on the first outer loop, but then 
-			faster on later iterations, as the outer loop converges as well.
-
-			Or at least they could, except there's another problem here:
-			Right now the individual poles save no state information from the previous outer loop solves - they solve
-			from scratch every time!
-			"""
-
-			new_state = [0.0 for _ in range(4)]
-			last_iter_y = [None for _ in range(4)]
-
-			prev_abs_err = None
-			prev_y = y_est
-
-			# Stats vars
-			estimate = y_est
-			errs = []
-			ys = [estimate]
-			success = False
-
-			for n_iter in range(MAX_NUM_ITER):
-
-				# TODO: nonlinearities in output buffer path (which will feed back into resonance)
-
-				xr = x - (y_est * self.fb)
-
-				y = xr
-
-				for pole_idx, pole in enumerate(self.poles):
-					estimate = last_iter_y[pole_idx]
-					this_pole_y, new_state[pole_idx] = pole.process_sample_no_state_update(y, estimate=estimate)
-					last_iter_y[pole_idx] = this_pole_y
-					y = this_pole_y
-
-				y_est = y
-
-				ys += [y]
-
-				err = y - prev_y
-				abs_err = abs(err)
-				errs += [abs_err]
-
-				if abs_err < EPS:
-					success = True
-					break
-
-				if (prev_abs_err is not None) and (abs_err >= prev_abs_err):
-					print('Warning: failed to converge! Falling back to initial estimate')
-					print('errs: ' + repr(errs))
-					print('ys: ' + repr(ys))
-					y = estimate
-					break
-
-				prev_y = y
-				prev_abs_err = abs_err
-
-			for pole, s in zip(self.poles, new_state):
-				pole.s = s
-
-			if self.stats_outer is not None:
-				self.stats_outer.add(
-					success=success,
-					est=estimate,
-					n_iter=n_iter + 1,
-					final=y,
-					err=errs)
-
-		else:
 			y = x - (y_est * self.fb)
 			for pole in self.poles:
 				y = pole.process_sample(y)
+
+			self.prev_y = y
+			return y * res_to_gain_correction(fb_to_res(self.fb))
+
+		elif not self.fb:
+			y = x
+			for pole in self.poles:
+				y = pole.process_sample(y)
+
+			if self.stats_outer is not None:
+				self.stats_outer.add(
+					success=True,
+					est=None,
+					n_iter=1,
+					final=y,
+					err=None)
+
+			self.prev_y = y
+			return y * res_to_gain_correction(fb_to_res(self.fb))
+
+		y_est = self.get_estimate(x)
+
+		"""
+		The iterative solving here is simple approach, but likely not the fastest way of doing it:
+		* Each pole solves itself iteratively until its error is low enough
+		* Then we do 1 iteration of the outer loop
+		* Then we re-solve each pole again
+		* And so on, until the outer loop error is low enough
+
+		Alternatively, could:
+		* Each pole runs 1 iteration
+		* Then we do 1 iteration of the outer loop
+		* Then 1 more iteration of each pole again
+		* And so on, until all errors are low enough
+
+		I suspect this may be faster overall, although it's also possible it could have stability issues
+		Would need to try it out and see.
+
+		Related to this, the current way this uses IterStats doesn't really make sense.
+		I suspect the individual pole IterStats would converge relatively slowly on the first outer loop, but then 
+		faster on later iterations, as the outer loop converges as well.
+
+		Or at least they could, except there's another problem here:
+		Right now the individual poles save no state information from the previous outer loop solves - they solve
+		from scratch every time!
+		"""
+
+		new_state = [0.0 for _ in range(4)]
+		last_iter_y = [None for _ in range(4)]
+
+		prev_abs_err = None
+		prev_y = y_est
+
+		# Stats vars
+		estimate = y_est
+		errs = []
+		ys = [estimate]
+		success = False
+
+		for n_iter in range(MAX_NUM_ITER):
+
+			# TODO: nonlinearities in output buffer path (which will feed back into resonance)
+
+			xr = x - (y_est * self.fb)
+
+			y = xr
+
+			for pole_idx, pole in enumerate(self.poles):
+				estimate = last_iter_y[pole_idx]
+				this_pole_y, new_state[pole_idx] = pole.process_sample_no_state_update(y, estimate=estimate)
+				last_iter_y[pole_idx] = this_pole_y
+				y = this_pole_y
+
+			y_est = y
+
+			ys += [y]
+
+			err = y - prev_y
+			abs_err = abs(err)
+			errs += [abs_err]
+
+			if abs_err < EPS:
+				success = True
+				break
+
+			if (prev_abs_err is not None) and (abs_err >= prev_abs_err):
+				print('Warning: failed to converge! Falling back to initial estimate')
+				print('errs: ' + repr(errs))
+				print('ys: ' + repr(ys))
+				y = estimate
+				break
+
+			prev_y = y
+			prev_abs_err = abs_err
+
+		for pole, s in zip(self.poles, new_state):
+			pole.s = s
+
+		if self.stats_outer is not None:
+			self.stats_outer.add(
+				success=success,
+				est=estimate,
+				n_iter=n_iter + 1,
+				final=y,
+				err=errs)
 
 		self.prev_y = y
 		return y * res_to_gain_correction(fb_to_res(self.fb))
@@ -269,10 +286,11 @@ class LinearCascadeFilterIterative(ResonantFilterBase):
 
 		self.prev_y = 0
 
-		if stats_outer is None:
-			self.stats_outer = IterStats('Linear Outer Loop')
-		else:
-			self.stats_outer = stats_outer
+		# if stats_outer is None:
+		# 	self.stats_outer = IterStats('Linear Outer Loop')
+		# else:
+		# 	self.stats_outer = stats_outer
+		self.stats_outer = stats_outer
 
 	def set_freq(self, wc):
 		for n in range(4):
@@ -452,28 +470,44 @@ class LinearCascadeFilter(ResonantFilterBase):
 		self.s = state
 
 class LadderFilter(IterativeCascadeFilterBase):
-	def __init__(self, wc, resonance=0):
-		pole_stats = [IterStats('Ladder pole %i' % (i + 1)) for i in range(4)]
+	def __init__(self, wc, resonance=0, iter_stats=False):
+
+		pole_stats = [IterStats('Ladder pole %i' % (i + 1)) for i in range(4)] if iter_stats else ([None] * 4)
 		poles = [LadderOnePole(wc, iter_stats=pole_stats[n]) for n in range(4)]
-		super().__init__(wc=wc, resonance=resonance, poles=poles, stats_outer=IterStats('Ladder outer loop'))
+		super().__init__(
+			wc=wc,
+			resonance=resonance,
+			poles=poles,
+			stats_outer=(IterStats('Ladder outer loop') if iter_stats else None),
+		)
 
 	def get_estimate(self, x):
 		# Pre-applying tanh to input makes it slightly more accurate than strictly linear case
 		return super().get_estimate(tanh(x))
 
 
-class OtaFilter(IterativeCascadeFilterBase):
-	def __init__(self, wc, resonance=0):
-		pole_stats = [IterStats('OTA pole %i' % (i + 1)) for i in range(4)]
-		poles = [OtaOnePole(wc, iter_stats=pole_stats[n]) for n in range(4)]
-		super().__init__(wc=wc, resonance=resonance, poles=poles, stats_outer=IterStats('OTA outer loop'))
+class IdealOtaFilter(IterativeCascadeFilterBase):
+	def __init__(self, wc, resonance=0, iter_stats=False):
+		pole_stats = [IterStats('OTA pole %i' % (i + 1)) for i in range(4)] if iter_stats else ([None] * 4)
+		poles = [IdealOtaOnePole(wc, iter_stats=pole_stats[n]) for n in range(4)]
+		super().__init__(
+			wc=wc,
+			resonance=resonance,
+			poles=poles,
+			stats_outer=(IterStats('OTA outer loop') if iter_stats else None),
+		)
 
 
-class OtaNegFilter(IterativeCascadeFilterBase):
-	def __init__(self, wc, resonance=0):
-		pole_stats = [IterStats('OTA neg pole %i' % (i + 1)) for i in range(4)]
-		poles = [OtaOnePoleNegative(wc, iter_stats=pole_stats[n]) for n in range(4)]
-		super().__init__(wc=wc, resonance=resonance, poles=poles, stats_outer=IterStats('OTA neg outer loop'))
+class IdealOtaNegFilter(IterativeCascadeFilterBase):
+	def __init__(self, wc, resonance=0, iter_stats=False):
+		pole_stats = [IterStats('OTA neg pole %i' % (i + 1)) for i in range(4)] if iter_stats else ([None] * 4)
+		poles = [IdealOtaOnePoleNegative(wc, iter_stats=pole_stats[n]) for n in range(4)]
+		super().__init__(
+			wc=wc,
+			resonance=resonance,
+			poles=poles,
+			stats_outer=(IterStats('OTA neg outer loop') if iter_stats else None),
+		)
 
 
 def do_fft(x, n_fft, window=False):
@@ -497,8 +531,8 @@ def plot_nonlin_filter(fc=0.1, f_saw=0.01, resonance=0.375, gain=2.0, n_samp=204
 	filts = [
 		dict(name='4P Linear', filt=LinearCascadeFilter(fc, resonance)),
 		dict(name='4P Ladder', filt=LadderFilter(fc, resonance)),
-		dict(name='4P Ota', filt=OtaFilter(fc, resonance)),
-		dict(name='4P Ota Negative', filt=OtaNegFilter(fc, resonance)),
+		dict(name='4P Ota', filt=IdealOtaFilter(fc, resonance)),
+		dict(name='4P Ota Negative', filt=IdealOtaNegFilter(fc, resonance)),
 	]
 
 	x = gen_saw(f_saw, n_samp) * gain * 0.5
@@ -620,7 +654,7 @@ def plot_step(fc: float, resonance: float, n_samp_per_level: int):
 
 	filter_specs = [
 		dict(name='4P Ladder', filt=LadderFilter(fc, resonance)),
-		dict(name='4P Ota', filt=OtaFilter(fc, resonance)),
+		dict(name='4P Ota', filt=IdealOtaFilter(fc, resonance)),
 	]
 
 	fig, [ax_step, ax_slope, ax_err] = plt.subplots(3, 1)
@@ -674,16 +708,24 @@ def main(args=None):
 	
 	# TODO: test self_oscillation for some of these
 	filter_specs = [
-		dict(name='Linear', filter=LinearCascadeFilter(fc, resonance=0.0), self_oscillation=False),
-		dict(name='linear iterative', filter=LinearCascadeFilterIterative(fc, resonance=0.0), self_oscillation=False),
-		dict(name='4P Ladder', filter=LadderFilter(fc, resonance=0.0), self_oscillation=False),
-		dict(name='4P Ota', filter=OtaFilter(fc, resonance=0.0), self_oscillation=False),
+		dict(name='4P Linear', filter=LinearCascadeFilter(fc, resonance=0.0), self_oscillation=False, linear=True),
+		dict(name='4P Linear (iterative)', filter=LinearCascadeFilterIterative(fc, resonance=0.0), self_oscillation=False, linear=True),
+		dict(name='4P Ladder', filter=LadderFilter(fc, resonance=0.0), self_oscillation=False, linear=False),
+		dict(name='4P Ota', filter=IdealOtaFilter(fc, resonance=0.0), self_oscillation=False, linear=False),
 	]
+
+	for filter_spec in filter_specs:
+		if not isinstance(filter_spec['filter'], LinearCascadeFilter):
+			assert filter_spec['filter'].stats_outer is None
+			assert filter_spec['filter'].poles[0].iter_stats is None
+			assert filter_spec['filter'].poles[1].iter_stats is None
+			assert filter_spec['filter'].poles[2].iter_stats is None
+			assert filter_spec['filter'].poles[3].iter_stats is None
 
 	for filter_spec in filter_specs:
 		name = filter_spec['name']
 
-		filename = 'cascade_%s.wav' % name.lower().replace(' ', '_')
+		filename = 'cascade_%s.wav' % name.lower().replace(' ', '_').replace('(', '').replace(')', '')
 
 		test_resonant_filter(
 			filter=filter_spec['filter'],
@@ -692,4 +734,5 @@ def main(args=None):
 			oversampling=4,
 			self_oscillation=filter_spec['self_oscillation'],
 			name=name,
+			sweep_gain=(not filter_spec['linear'])
 		)
