@@ -161,5 +161,3 @@ def main():
 if __name__ == "__main__":
 	ret = main()
 	exit(ret)
-else:
-	raise ImportError('main.py must be run as main!')

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 
+import argparse
 from math import tanh
+from multiprocessing import Pool
+import time
 from typing import Iterable, Optional
 
 import numpy as np
@@ -10,7 +13,7 @@ from filters.filter_audio_test import test_resonant_filter
 from filters.filter_base import ResonantFilterBase
 from generation.signal_generation import gen_sine, gen_saw
 from solvers.iter_stats import IterStats
-from utils.utils import to_dB
+from utils.utils import to_dB, print_timestamped
 
 from filters.zdf.onepole import ZdfOnePoleBase, TrapzOnePole, TanhInputTrapzOnePole, LadderOnePole, IdealOtaOnePole, IdealOtaOnePoleNegative
 
@@ -695,6 +698,12 @@ def plot_step(fc: float, resonance: float, n_samp_per_level: int):
 	ax_err.set_ylabel('Error from linear')
 
 
+def get_parser():
+	parser = argparse.ArgumentParser(add_help=False)
+	parser.add_argument('--no-pool', action='store_false', dest='use_pool')
+	return parser
+
+
 def plot(args=None):
 	plot_nonlin_filter(fc=0.1, f_saw=0.01, gain=4.0, n_samp=2048)
 	plot_lin_4pole(fc=0.1, f_saw=0.01, resonance=0.375, n_samp=2048)
@@ -703,36 +712,52 @@ def plot(args=None):
 
 
 def main(args=None):
-	
-	fc = 1000 / 48000  # Doesn't matter, will get overwritten anyway
-	
+
+	start = time.monotonic()
+	print_timestamped('Starting cascade audio test')
+
 	# TODO: test self_oscillation for some of these
-	filter_specs = [
-		dict(name='4P Linear', filter=LinearCascadeFilter(fc, resonance=0.0), self_oscillation=False, linear=True),
-		dict(name='4P Linear (iterative)', filter=LinearCascadeFilterIterative(fc, resonance=0.0), self_oscillation=False, linear=True),
-		dict(name='4P Ladder', filter=LadderFilter(fc, resonance=0.0), self_oscillation=False, linear=False),
-		dict(name='4P Ota', filter=IdealOtaFilter(fc, resonance=0.0), self_oscillation=False, linear=False),
+	filters = [
+		dict(name='4P Linear', constructor=LinearCascadeFilter, self_oscillation=False, linear=True),
+		dict(name='4P Linear (iterative)', constructor=LinearCascadeFilterIterative, self_oscillation=False, linear=True),
+		dict(name='4P Ladder', constructor=LadderFilter, self_oscillation=False, linear=False),
+		dict(name='4P Ota', constructor=IdealOtaFilter, self_oscillation=False, linear=False),
 	]
 
-	for filter_spec in filter_specs:
-		if not isinstance(filter_spec['filter'], LinearCascadeFilter):
-			assert filter_spec['filter'].stats_outer is None
-			assert filter_spec['filter'].poles[0].iter_stats is None
-			assert filter_spec['filter'].poles[1].iter_stats is None
-			assert filter_spec['filter'].poles[2].iter_stats is None
-			assert filter_spec['filter'].poles[3].iter_stats is None
-
-	for filter_spec in filter_specs:
+	def test_filter(filter_spec, pool):
 		name = filter_spec['name']
 
 		filename = 'cascade_%s.wav' % name.lower().replace(' ', '_').replace('(', '').replace(')', '')
 
 		test_resonant_filter(
-			filter=filter_spec['filter'],
+			filter_constructor=filter_spec['constructor'],
 			filename=filename,
 			sample_rate_out=48000,
 			oversampling=4,
 			self_oscillation=filter_spec['self_oscillation'],
 			name=name,
-			sweep_gain=(not filter_spec['linear'])
+			sweep_gain=(not filter_spec['linear']),
+			pool=pool,
 		)
+
+	if args.use_pool:
+		# TODO: this still isn't the most efficient, as each filter will wait for all of its own jobs to complete
+		with Pool() as p:
+			for filter_spec in filters:
+				test_filter(filter_spec, pool=p)
+	else:
+		for filter_spec in filters:
+			test_filter(filter_spec, pool=None)
+
+	duration = time.monotonic() - start
+
+	if duration > 60.0:
+		duration_str = '%i:%i:%.3f' % (
+			int(duration / 60.0),
+			int(duration % 60.0),
+			(duration % 1.0)
+		)
+	else:
+		duration_str = '%.3f seconds' % duration
+
+	print_timestamped(f'Total duration: {duration_str}')

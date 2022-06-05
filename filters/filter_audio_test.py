@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
 import datetime
+from multiprocessing import Pool
 import time
-from typing import Optional
+from typing import Optional, Callable, Tuple, Union
 
 import numpy as np
 import scipy.signal
@@ -122,12 +123,49 @@ def generate_test_signal(num_samp: int, freq_Hz: float, sample_rate_Hz: float) -
 	return x
 
 
+def _test_filter(
+		filter_constructor: Callable[..., Union[FilterBase, ResonantFilterBase]],
+		x: np.ndarray,
+		wc_start: float,
+		wc_end: float,
+		gain = 1.0,
+		resonance: Optional[float] = None,
+		normalize_gain = True,
+		) -> Tuple[np.ndarray, float]:
+
+	assert gain != 0.0
+
+	xg = x * gain
+
+	if resonance is None:
+		filter = filter_constructor(wc_start)
+	else:
+		filter = filter_constructor(wc_start, resonance=resonance)
+		filter.set_resonance(resonance)
+
+	start = time.monotonic()
+
+	y = filter.process_freq_sweep(xg, wc_start=wc_start, wc_end=wc_end, log=True)
+
+	duration_seconds = time.monotonic() - start
+
+	# TODO: not just a sweep, also try audio-rate modulation
+
+	if normalize_gain:
+		y /= gain
+
+	# TODO: also apply very brief envelope to start & end to prevent clicks
+
+	return y, duration_seconds
+
+
 def test_non_resonant_filter(
-		filter: FilterBase,
+		filter_constructor: Callable[..., FilterBase],
 		filename: str,
 		sample_rate_out=48000,
 		oversampling=4,
 		name: Optional[str]=None,
+		pool: Optional[Pool]=None,
 		) -> None:
 
 	if name is None:
@@ -149,41 +187,64 @@ def test_non_resonant_filter(
 
 	y = np.zeros(num_samp)
 
-	# TODO: use multiprocessing to do different gain levels in parallel
+	if pool is None:
 
-	for gain_idx, gain in enumerate(gain_levels):
+		for gain_idx, gain in enumerate(gain_levels):
 
-		assert gain != 0.0
+			assert gain != 0.0
 
-		xg = x * gain
+			print_timestamped(f'Processing "{name}" at gain {gain}...')
 
-		length_seconds = len(xg) / internal_sample_rate
+			yg, duration_seconds = _test_filter(
+				filter_constructor=filter_constructor,
+				x=x,
+				wc_start=fc_start / internal_sample_rate,
+				wc_end=fc_end / internal_sample_rate,
+				gain=gain,
+				resonance=None,
+				normalize_gain=normalize_gain,
+			)
 
-		print_timestamped(f'Processing "{name}" at gain {gain}...')
+			length_seconds = len(yg) / internal_sample_rate
+			real_time_scale = duration_seconds / length_seconds
+			print_timestamped(f'Processing {length_seconds:.3f} seconds at {internal_sample_rate / 1000:g} kHz took {duration_seconds:.3f} seconds = {real_time_scale:.2f}x real-time')
 
-		start = time.monotonic()
+			start_idx = gain_idx * num_samp_per_gain
+			end_idx = start_idx + num_samp_per_gain
 
-		yg = filter.process_freq_sweep(
-			xg,
-			wc_start=fc_start / internal_sample_rate,
-			wc_end=fc_end / internal_sample_rate,
-			log=True)
+			y[start_idx:end_idx] = yg
+	else:
+		async_results = []
 
-		duration_seconds = time.monotonic() - start
-		real_time_scale = duration_seconds / length_seconds
-		print_timestamped(f'Processing {length_seconds:.3f} seconds at {internal_sample_rate / 1000:g} kHz took {duration_seconds:.3f} seconds = {real_time_scale:.2f}x real-time')
+		for gain in gain_levels:
 
-		# TODO: not just a sweep, also try audio-rate modulation
+			assert gain != 0.0
 
-		if normalize_gain:
-			yg /= gain
+			print_timestamped(f'Starting processing "{name}" at gain {gain}...')
+			async_result = pool.apply_async(
+				_test_filter,
+				kwds = dict(
+					filter_constructor=filter_constructor,
+					x=x,
+					wc_start=fc_start / internal_sample_rate,
+					wc_end=fc_end / internal_sample_rate,
+					gain=gain,
+					normalize_gain=normalize_gain,
+				)
+			)
+			async_results.append(async_result)
 
-		# TODO: also apply very brief envelope to start & end to prevent clicks
+		for gain_idx, (async_result, gain) in enumerate(zip(async_results, gain_levels)):
+			yg, duration_seconds = async_result.get()
 
-		start_idx = gain_idx * num_samp_per_gain
-		end_idx = start_idx + num_samp_per_gain
+			length_seconds = len(yg) / internal_sample_rate
+			real_time_scale = duration_seconds / length_seconds
+			print_timestamped(f'Processing "{name}" at gain {gain} for {length_seconds:.3f} seconds at {internal_sample_rate / 1000:g} kHz took {duration_seconds:.3f} seconds = {real_time_scale:.2f}x real-time')
 
-		y[start_idx:end_idx] = yg
+			start_idx = gain_idx * num_samp_per_gain
+			end_idx = start_idx + num_samp_per_gain
+
+			y[start_idx:end_idx] = yg
 
 	print_timestamped(f'Downsampling "{name}"...')
 
@@ -202,13 +263,14 @@ def test_non_resonant_filter(
 
 
 def test_resonant_filter(
-		filter: ResonantFilterBase,
+		filter_constructor: Callable[..., ResonantFilterBase],
 		filename: str,
 		sample_rate_out=48000,
 		oversampling=4,
 		self_oscillation=False,
 		name: Optional[str]=None,
 		sweep_gain=True,
+		pool: Optional[Pool]=None,
 		) -> None:
 
 	if name is None:
@@ -257,48 +319,76 @@ def test_resonant_filter(
 
 	y = np.zeros(num_samp)
 
-	# TODO: use multiprocessing to test different gain/resonance levels in parallel
+	if pool is None:
 
-	for gain_idx, (gain, resonance) in enumerate(gain_resonance_pairs):
+		for gain_idx, (gain, resonance) in enumerate(gain_resonance_pairs):
 
-		assert gain != 0.0
+			assert gain != 0.0
 
-		assert resonance >= 0.0
+			assert resonance >= 0.0
 
-		if not self_oscillation:
-			assert resonance < 1.0
+			if not self_oscillation:
+				assert resonance < 1.0
 
-		xg = x * gain
+			print_timestamped(f'Processing "{name}" at gain {gain}, resonance {resonance}...')
 
-		length_seconds = len(xg) / internal_sample_rate
+			yg, duration_seconds = _test_filter(
+				filter_constructor=filter_constructor,
+				x=x,
+				wc_start=fc_start / internal_sample_rate,
+				wc_end=fc_end / internal_sample_rate,
+				resonance=resonance,
+				gain=gain,
+				normalize_gain=normalize_gain,
+			)
 
-		print_timestamped(f'Processing "{name}" at gain {gain}, resonance {resonance}...')
+			length_seconds = len(yg) / internal_sample_rate
+			real_time_scale = duration_seconds / length_seconds
+			print_timestamped(f'Processing {length_seconds:.3f} seconds at {internal_sample_rate / 1000:g} kHz took {duration_seconds:.3f} seconds = {real_time_scale:.2f}x real-time')
 
-		start = time.monotonic()
+			start_idx = gain_idx * num_samp_per_gain
+			end_idx = start_idx + num_samp_per_gain
 
-		filter.set_resonance(resonance)
+			y[start_idx:end_idx] = yg
 
-		yg = filter.process_freq_sweep(
-			xg,
-			wc_start=fc_start / internal_sample_rate,
-			wc_end=fc_end / internal_sample_rate,
-			log=True)
+	else:
+		async_results = []
 
-		duration_seconds = time.monotonic() - start
-		real_time_scale = duration_seconds / length_seconds
-		print_timestamped(f'Processing {length_seconds:.3f} seconds at {internal_sample_rate / 1000:g} kHz took {duration_seconds:.3f} seconds = {real_time_scale:.2f}x real-time')
+		for gain, resonance in gain_resonance_pairs:
 
-		# TODO: not just a sweep, also try audio-rate modulation
+			assert gain != 0.0
 
-		if normalize_gain:
-			yg /= gain
+			assert resonance >= 0.0
 
-		# TODO: also apply very brief envelope to start & end to prevent clicks
+			if not self_oscillation:
+				assert resonance < 1.0
 
-		start_idx = gain_idx * num_samp_per_gain
-		end_idx = start_idx + num_samp_per_gain
+			print_timestamped(f'Starting processing "{name}" at gain {gain}, resonance {resonance}...')
+			async_result = pool.apply_async(
+				_test_filter,
+				kwds=dict(
+					filter_constructor=filter_constructor,
+					x=x,
+					wc_start=fc_start / internal_sample_rate,
+					wc_end=fc_end / internal_sample_rate,
+					resonance=resonance,
+					gain=gain,
+					normalize_gain=normalize_gain,
+				)
+			)
+			async_results.append(async_result)
 
-		y[start_idx:end_idx] = yg
+		for gain_idx, (async_result, (gain, resonance)) in enumerate(zip(async_results, gain_resonance_pairs)):
+			yg, duration_seconds = async_result.get()
+
+			length_seconds = len(yg) / internal_sample_rate
+			real_time_scale = duration_seconds / length_seconds
+			print_timestamped(f'Processing "{name}" at gain {gain}, resonance {resonance} for {length_seconds:.3f} seconds at {internal_sample_rate / 1000:g} kHz took {duration_seconds:.3f} seconds = {real_time_scale:.2f}x real-time')
+
+			start_idx = gain_idx * num_samp_per_gain
+			end_idx = start_idx + num_samp_per_gain
+
+			y[start_idx:end_idx] = yg
 
 	print_timestamped(f'Downsampling {name}...')
 
