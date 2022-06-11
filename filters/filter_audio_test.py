@@ -77,7 +77,10 @@ def _downsample(x: np.ndarray, downsample_factor: int, max_fft_size=16384) -> np
 	return y
 
 
-def generate_test_signal(num_samp: int, freq_Hz: float, sample_rate_Hz: float) -> np.ndarray:
+def generate_test_signal(num_samp: int, freq_Hz: float, sample_rate_Hz: float, square=False) -> np.ndarray:
+
+	if square:
+		return signal_generation.gen_square(freq_norm=(freq_Hz / sample_rate_Hz), n_samp=num_samp)
 
 	detune_Hz = 0.5
 
@@ -181,29 +184,36 @@ def _test_filter(
 	time_per_gain_seconds = 5.0
 	num_samp_per_gain = int(round(time_per_gain_seconds * internal_sample_rate))
 
-	num_samp = num_samp_per_gain * len(gain_resonance_pairs)
+	gain_resonance_square_pairs = [
+		(gain, resonance, False) for gain, resonance in gain_resonance_pairs
+	] + [
+		(gain, resonance, True) for gain, resonance in gain_resonance_pairs
+	]
+
+	num_samp = num_samp_per_gain * len(gain_resonance_square_pairs)
 	normalize_gain = True
 
-	x = generate_test_signal(num_samp=num_samp_per_gain, freq_Hz=sig_freq, sample_rate_Hz=internal_sample_rate)
-
+	x_saw = generate_test_signal(num_samp=num_samp_per_gain, freq_Hz=sig_freq, sample_rate_Hz=internal_sample_rate, square=False)
+	x_squ = generate_test_signal(num_samp=num_samp_per_gain, freq_Hz=sig_freq, sample_rate_Hz=internal_sample_rate, square=True)
 	y = np.zeros(num_samp)
 
 	if pool is None:
 
-		for gain_idx, (gain, resonance) in enumerate(gain_resonance_pairs):
+		for gain_idx, (gain, resonance, square) in enumerate(gain_resonance_square_pairs):
+
+			square_saw_name = 'square' if square else 'saw'
 
 			assert gain != 0.0
 
 			if resonance is not None:
 				assert resonance >= 0.0
-				print_timestamped(f'Processing "{name}" at gain {gain}, resonance {resonance}...')
+				print_timestamped(f'Processing "{name}" ({square_saw_name}) at gain {gain}, resonance {resonance}...')
 			else:
-				print_timestamped(f'Processing "{name}" at gain {gain}...')
-
+				print_timestamped(f'Processing "{name}" ({square_saw_name}) at gain {gain}...')
 
 			yg, duration_seconds = _test_filter_at_gain_res(
 				filter_constructor=filter_constructor,
-				x=x,
+				x=(x_squ if square else x_saw),
 				wc_start=fc_start / internal_sample_rate,
 				wc_end=fc_end / internal_sample_rate,
 				resonance=resonance,
@@ -227,21 +237,23 @@ def _test_filter(
 	else:
 		async_results = []
 
-		for gain, resonance in gain_resonance_pairs:
+		for gain, resonance, square in gain_resonance_square_pairs:
 
 			assert gain != 0.0
 
+			square_saw_name = 'square' if square else 'saw'
+
 			if resonance is not None:
 				assert resonance >= 0.0
-				print_timestamped(f'Starting processing "{name}" at gain {gain}, resonance {resonance}...')
+				print_timestamped(f'Starting processing "{name}" ({square_saw_name}) at gain {gain}, resonance {resonance}...')
 			else:
-				print_timestamped(f'Starting processing "{name}" at gain {gain}...')
+				print_timestamped(f'Starting processing "{name}" ({square_saw_name}) at gain {gain}...')
 
 			async_result = pool.apply_async(
 				_test_filter_at_gain_res,
 				kwds=dict(
 					filter_constructor=filter_constructor,
-					x=x,
+					x=(x_squ if square else x_saw),
 					wc_start=fc_start / internal_sample_rate,
 					wc_end=fc_end / internal_sample_rate,
 					resonance=resonance,
@@ -251,14 +263,16 @@ def _test_filter(
 			)
 			async_results.append(async_result)
 
-		for gain_idx, (async_result, (gain, resonance)) in enumerate(zip(async_results, gain_resonance_pairs)):
+		for gain_idx, (async_result, (gain, resonance, square)) in enumerate(zip(async_results, gain_resonance_square_pairs)):
 			yg, duration_seconds = async_result.get()
+
+			square_saw_name = 'square' if square else 'saw'
 
 			length_seconds = len(yg) / internal_sample_rate
 			real_time_scale = duration_seconds / length_seconds
 			if resonance is not None:
 				print_timestamped(
-					f'Processing "{name}" '
+					f'Processing "{name}" ({square_saw_name}) '
 					f'at gain {gain}, '
 					f'resonance {resonance} '
 					f'for {length_seconds:.3f} seconds '
@@ -268,7 +282,7 @@ def _test_filter(
 				)
 			else:
 				print_timestamped(
-					f'Processing "{name}" '
+					f'Processing "{name}" ({square_saw_name}) '
 					f'at gain {gain} '
 					f'for {length_seconds:.3f} seconds '
 					f'at {internal_sample_rate / 1000:g} kHz '
