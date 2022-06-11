@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
 
-from solvers.iter_stats import IterStats
+from typing import Tuple, Iterable, Optional, Callable, Union
 
+import scipy.optimize
+
+from solvers.iter_stats import IterStats
 from utils import utils
 
-from typing import Tuple, Iterable, Optional, Callable, Union
+
+DEFAULT_EPS = 1.0e-6
 
 
 def solve_fb_iterative(
 		f: Callable[[float], float],
 		estimate: float,
 		rate_limit: Optional[float]=None,
-		eps: Optional[float]=1.0e-6,
+		eps: Optional[float]=DEFAULT_EPS,
 		max_num_iter=100,
 		throw_if_failed_converge=True,
 		return_vector=False,
 		iter_stats: Optional[IterStats]=None,
 		verbose=False,
-) -> Union[Tuple[float, int], Iterable[float]]:
+) -> Union[float, Iterable[float]]:
 	"""
 	Solves f(y) = y
 
@@ -86,20 +90,20 @@ def solve_fb_iterative(
 	if yv is not None:
 		return yv
 	else:
-		return y, n
+		return y
 
 
 def solve_iterative(
 		f: Callable[[float], float],
 		estimate: float,
 		rate_limit: Optional[float]=None,
-		eps: Optional[float]=1.0e-6,
+		eps: Optional[float]=DEFAULT_EPS,
 		max_num_iter=100,
 		throw_if_failed_converge=True,
 		return_vector=False,
 		iter_stats: Optional[IterStats]=None,
 		verbose=False,
-) -> Union[Tuple[float, int], Iterable[float]]:
+) -> Union[float, Iterable[float]]:
 	"""
 	Solves f(x) = 0
 
@@ -142,10 +146,10 @@ def solve_iterative(
 
 def solve_bisection(
 		f: Callable[[float], float],
-		estimate: float,
 		init_range: Tuple[float, float],
+		estimate: Optional[float]=None,
 		interp=True,
-		eps: Optional[float]=1.0e-6,
+		eps: Optional[float]=DEFAULT_EPS,
 		max_num_iter=100,
 		throw_if_failed_converge=True,
 		return_vector=False) -> Union[Tuple[float, int], Iterable[float]]:
@@ -153,8 +157,8 @@ def solve_bisection(
 	Solve f(x) = 0 by bisection
 
 	:param f:
-	:param estimate: initial estimate
 	:param init_range: initial range
+	:param estimate: initial estimate
 	:param interp: if true, interpolates (regula falsi); if false, performs naive bisection (average of 2 values)
 	:param eps: max absolute error; if None, will continue calculating until max_num_iter is reached
 	:param max_num_iter: Max number of iterations
@@ -166,7 +170,6 @@ def solve_bisection(
 	if max_num_iter < 1:
 		raise ValueError('max_num_iter must be at least 1')
 
-	x = estimate
 	xv = [] if return_vector else None
 
 	xmin, xmax = init_range
@@ -183,25 +186,26 @@ def solve_bisection(
 
 	n = 0
 	for n in range(1, max_num_iter + 1):
-		x_prev = x
+
+		if (n == 1) and (estimate is not None):
+			x = estimate
+		elif interp:
+			x = utils.scale(0, (ymin, ymax), (xmin, xmax))
+		else:
+			x = 0.5 * (xmin + xmax)
 
 		if xv is not None:
 			xv.append(x)
 
 		y = f(x)
 
+		if eps and (abs(y) < eps):
+			break
+		
 		if y < 0:
 			xmin, ymin = x, y
 		else:
 			xmax, ymax = x, y
-
-		if interp:
-			x = utils.scale(0, (ymin, ymax), (xmin, xmax))
-		else:
-			x = 0.5 * (xmin + xmax)
-
-		if eps and (abs(x - x_prev) < eps):
-			break
 
 	else:
 		if throw_if_failed_converge and eps:
@@ -217,12 +221,14 @@ def solve_nr(
 		f: Callable[[float], float],
 		df: Callable[[float], float],
 		estimate: float,
-		eps: Optional[float]=1.0e-6,
+		eps: Optional[float]=DEFAULT_EPS,
 		max_num_iter=100,
 		throw_if_failed_converge=True,
 		return_vector=False,
 		iter_stats: Optional[IterStats]=None,
-) -> Union[Tuple[float, int], Iterable[float]]:
+		limit_range: Optional[Tuple[float, float]]=None,
+		clip_to_limit_range=False,
+) -> Union[float, Iterable[float]]:
 	"""
 	Solves f(x) = 0 using Newton-Raphson method
 
@@ -242,6 +248,9 @@ def solve_nr(
 	x = estimate
 	xv = [] if return_vector else None
 
+	if (limit_range is not None) and not (limit_range[0] <= estimate <= limit_range[1]):
+		raise ValueError('Estimate out of limit_range')
+
 	errs = [] if iter_stats is not None else None
 
 	n = 0
@@ -256,7 +265,16 @@ def solve_nr(
 		dfx = df(x)
 
 		residue = fx / dfx
+		x_prev = x
 		x -= residue
+
+		if (limit_range is not None) and not (limit_range[0] <= x <= limit_range[1]):
+			if not clip_to_limit_range:
+				raise RuntimeError('Failed to converge - value out of limit_range, and clip_to_limit_range not set')
+
+			x = utils.clip(x, limit_range)
+			if x == x_prev:
+				raise RuntimeError('Failed to converge - clip_to_limit_range failed, returned out of range twice in a row')
 
 		if errs is not None:
 			errs.append(abs(residue))
@@ -280,10 +298,163 @@ def solve_nr(
 	if xv is not None:
 		return xv
 	else:
-		return x, n
+		return x
+
+
+def solve_bisection_then_nr(
+		f: Callable[[float], float],
+		df: Callable[[float], float],
+		init_range: Tuple[float, float],
+		eps: Optional[float]=DEFAULT_EPS,
+		max_num_iter=100,
+		throw_if_failed_converge=True,
+		require_in_range=False,
+		return_vector=False) -> Union[Tuple[float, int], Iterable[float]]:
+
+	if max_num_iter < 1:
+		raise ValueError('max_num_iter must be at least 1')
+
+	xmin, xmax = init_range
+	ymin = f(xmin)
+	ymax = f(xmax)
+
+	if require_in_range and (ymax > 0) == (ymin > 0):
+		raise ValueError('Invalid input range')
+
+	# TODO: since we have a derivative function, try using spline interpolation
+
+	# If not require_in_range, then clip=True will cause using the one closer to zero as the estimate
+	x = utils.scale(0, (ymin, ymax), (xmin, xmax), clip=True)
+
+	return solve_nr(
+		f=f,
+		df=df,
+		estimate=x,
+		eps=eps,
+		max_num_iter=(max_num_iter - 1),
+		throw_if_failed_converge=throw_if_failed_converge,
+		return_vector=return_vector,
+		limit_range=(init_range if require_in_range else None),
+
+		# If require_in_range, then we've already guaranteed result is bracketed by range, so fail if estimate outside
+		# If not, then this value is unused anyway
+		clip_to_limit_range=False,
+	)
+
+
+# TODO: try Brent's method
+
+
+def plot(args):
+	from matplotlib import pyplot as plt
+	import numpy as np
+
+	"""
+	y = (x + 1)(x - 1)(x - 4) = (x^2 - 1)(x - 4) = x^3 - 4x^2 - x + 4
+	dy/dx = 3x^2 - 8x - 1
+	"""
+
+	def plot_nr(f, df, range, estimates, title: str):
+
+		fig = plt.figure()
+		plt.suptitle('Newton-Raphson')
+
+		plt.title(title)
+
+		x = np.linspace(range[0], range[1], 1024)
+		y = f(x)
+		plt.plot(x, y, label='Actual', zorder=99)
+
+		for estimate in estimates:
+			xv = solve_nr(f, df, estimate=estimate, return_vector=True)
+
+			x_plot = []
+			y_plot = []
+			for x_val in xv:
+
+				y_val = f(x_val)
+
+				x_plot.append(x_val)
+				x_plot.append(x_val)
+
+				y_plot.append(0.0)
+				y_plot.append(y_val)
+
+			plt.plot(x_plot, y_plot, label=f'est={estimate:g} ({len(xv)} iter)')
+
+		plt.legend()
+		plt.grid()
+
+	def plot_bi_nr(f, df, range, title: str):
+		fig = plt.figure()
+		plt.suptitle('Regula Falsi then Newton-Raphson')
+
+		plt.title(title)
+
+		x = np.linspace(range[0], range[1], 1024)
+		y = f(x)
+		plt.plot(x, y, label='Actual', zorder=99)
+
+		y_min = f(range[0])
+		y_max = f(range[1])
+		x0 = utils.scale(0, (y_min, y_max), range)
+		plt.plot([range[0], x0, range[1]], [y_min, 0, y_max], '.-', label='Regula falsi')
+
+		xv = solve_bisection_then_nr(f, df, init_range=range, return_vector=True)
+
+		x_plot = []
+		y_plot = []
+		for x_val in xv:
+
+			y_val = f(x_val)
+
+			x_plot.append(x_val)
+			x_plot.append(x_val)
+
+			y_plot.append(0.0)
+			y_plot.append(y_val)
+
+		plt.plot(x_plot, y_plot, label=f'range=[{range[0]:g}, {range[1]:g}] ({len(xv)} iter)')
+
+		plt.legend()
+		plt.grid()
+
+	def f(x):
+		return (x ** 3.) - 4.*(x ** 2.) - x + 4.
+
+	def df(x):
+		return 3.*(x ** 2.) - 8.*x - 1.
+	
+	estimates = [-3, -1.1, 1.1, 2., 5]
+	plot_nr(f=f, df=df, range=[-3, 5], estimates=estimates, title='f(x) = (x + 1)(x - 1)(x - 4)')
+
+	def f(x):
+		return np.tanh(x) - 0.9
+	
+	def df(x):
+		return (np.cosh(x)) ** -2.0
+
+	estimates = [1.472, 1.5, 2., 1., 0., -0.9]
+	plot_nr(f=f, df=df, range=[-1, 2], estimates=estimates, title='f(x) = tanh(x) - 0.9')
+	plot_bi_nr(f=f, df=df, range=[-2, 2], title='f(x) = tanh(x) - 0.9')
+
+	def f(x):
+		return np.arctanh(x) - 0.9
+	
+	def df(x):
+		return 1.0 / (1.0 - (x ** 2.0))
+
+	estimates = [0.75, 0, 0.9999, -0.9999]
+	plot_nr(f=f, df=df, range=[-0.9999, 0.9999], estimates=estimates, title='f(x) = atanh(x) - 0.9')
+	plot_bi_nr(f=f, df=df, range=[-0.9999, 0.9999], title='f(x) = atanh(x) - 0.9')
+
+	plt.show()
 
 
 def main(args):
+	import math
+	import time
+
 	"""
 	y = (x + 1)(x - 1)(x - 4) = (x^2 - 1)(x - 4) = x^3 - 4x^2 - x + 4
 	dy/dx = 3x^2 - 8x - 1
@@ -322,15 +493,29 @@ def main(args):
 		print('x[%i] = %.12f' % (n, x))
 
 	print('')
-	range = (-0.75, 3.75)
-	est = 0.5 * (range[0] + range[1])
+	range = (-0.9, 3.75)
+	est = 0.75
+	print('True bisection, init range: x = (%g, %g), y = (%g, %g)' % (range[0], range[1], f(range[0]), f(range[1])))
+	xv = solve_bisection(f, init_range=range, interp=False, return_vector=True)
+	print('%i iterations:' % len(xv))
+	for n, x in enumerate(xv):
+		print('x[%i] = %.12f' % (n, x))
+	
+	print()
 	print('True bisection, init range: x = (%g, %g), y = (%g, %g), est = %g' % (range[0], range[1], f(range[0]), f(range[1]), est))
 	xv = solve_bisection(f, estimate=est, init_range=range, interp=False, return_vector=True)
 	print('%i iterations:' % len(xv))
 	for n, x in enumerate(xv):
 		print('x[%i] = %.12f' % (n, x))
 
-	print('')
+	print()
+	print('Interpolating bisection, init range: x = (%g, %g), y = (%g, %g)' % (range[0], range[1], f(range[0]), f(range[1])))
+	xv = solve_bisection(f, init_range=range, interp=True, return_vector=True)
+	print('%i iterations:' % len(xv))
+	for n, x in enumerate(xv):
+		print('x[%i] = %.12f' % (n, x))
+
+	print()
 	print('Interpolating bisection, init range: x = (%g, %g), y = (%g, %g), est = %g' % (range[0], range[1], f(range[0]), f(range[1]), est))
 	xv = solve_bisection(f, estimate=est, init_range=range, interp=True, return_vector=True)
 	print('%i iterations:' % len(xv))
@@ -340,11 +525,31 @@ def main(args):
 	print('')
 	range = (1.5, 7.)
 	est = 0.5 * (range[0] + range[1])
-	print('Interpolating bisection, init range: x = (%g, %g), y = (%g, %g), est = %g' % (range[0], range[1], f(range[0]), f(range[1]), est))
-	xv = solve_bisection(f, estimate=est, init_range=range, interp=True, return_vector=True)
+	print('Interpolating bisection, init range: x = (%g, %g), y = (%g, %g)' % (range[0], range[1], f(range[0]), f(range[1])))
+	xv = solve_bisection(f, init_range=range, interp=True, return_vector=True)
 	print('%i iterations:' % len(xv))
 	for n, x in enumerate(xv):
 		print('x[%i] = %.12f' % (n, x))
+
+	range = (-0.9, 3.75)
+	print()
+	print('scipy.optimize.brentq, init range: x = (%g, %g), y = (%g, %g)' % (range[0], range[1], f(range[0]), f(range[1])))
+	x, r = scipy.optimize.brentq(f, *range, full_output=True, xtol=DEFAULT_EPS, rtol=DEFAULT_EPS)
+	print('Result %.12f, %i iterations, %i function calls' % (
+		x,
+		r.iterations,
+		r.function_calls,
+	))
+
+	range = (1.5, 7.)
+	print()
+	print('scipy.optimize.brentq, init range: x = (%g, %g), y = (%g, %g)' % (range[0], range[1], f(range[0]), f(range[1])))
+	x, r = scipy.optimize.brentq(f, *range, full_output=True, xtol=DEFAULT_EPS, rtol=DEFAULT_EPS)
+	print('Result %.12f, %i iterations, %i function calls' % (
+		x,
+		r.iterations,
+		r.function_calls,
+	))
 
 	print('')
 	print('Newton-Raphson:')
@@ -352,7 +557,96 @@ def main(args):
 		print('')
 		print('Estimate %g' % est)
 
+		start = time.time()
 		xv = solve_nr(f, df, estimate=est, return_vector=True)
+		duration = time.time() - start
+		print('Duration: %s' % duration)
 		print('%i iterations:' % len(xv))
 		for n, x in enumerate(xv):
 			print('x[%i] = %.12f' % (n, x))
+
+		start = time.time()
+		x, r = scipy.optimize.newton(func=f, x0=est, fprime=df, rtol=DEFAULT_EPS, full_output=True)
+		duration = time.time() - start
+		print('With scipy.optimize.newton:')
+		print('Duration: %s' % duration)
+		print('%i iterations, %i function calls' % (r.iterations, r.function_calls))
+
+	print()
+	print('y = tanh(x)')
+	print('dy/dx = sech(x)^2 = cosh(x)^-2')
+	print()
+	print('Solving for y=0.9')
+	print('Solution is approx 1.472')
+
+	def f(x):
+		return math.tanh(x) - 0.9
+
+	def df(x):
+		return (math.cosh(x)) ** -2.0
+
+	print()
+	print('Newton-Raphson:')
+	# Fails to converge if estimate is too far off (e.g. -1 or 3)
+	for estimate in [1.472, 1.5, 2., 1., 0., -0.9, 2.5]:
+		print()
+		print(f'Estimate {estimate}')
+		start = time.time()
+		xv = solve_nr(f, df, estimate=estimate, return_vector=True)
+		duration = time.time() - start
+		print('Duration: %s' % duration)
+		print(f'{len(xv)} iterations:')
+		for n, x in enumerate(xv):
+			print(f'x[{n}] = {x:.12f}')
+		
+		start = time.time()
+		x, r = scipy.optimize.newton(func=f, x0=estimate, fprime=df, rtol=DEFAULT_EPS, full_output=True)
+		duration = time.time() - start
+		print('With scipy.optimize.newton:')
+		print('Duration: %s' % duration)
+		print('%i iterations, %i function calls' % (r.iterations, r.function_calls))
+
+	print()
+	print('Regula falsi then NR, range +/- 2:')
+	xv = solve_bisection_then_nr(f, df, (-2, 2), return_vector=True)
+	for n, x in enumerate(xv):
+		print(f'x[{n}] = {x:.12f}')
+
+	print()
+	print('y = atanh(x)')
+	print('dy/dx = 1 / (1 - x^2')
+	print()
+	print('Solving for y=0.9')
+	print('Solution is approx 0.716')
+
+	def f(x):
+		return math.atanh(x) - 0.9
+
+	def df(x):
+		return 1.0 / (1.0 - (x ** 2.0))
+
+	print()
+	print('Newton-Raphson:')
+	for estimate in [0.75, 0, 0.99999, -0.99999]:
+		print()
+		print(f'Estimate {estimate}')
+		start = time.time()
+		xv = solve_nr(f, df, estimate=estimate, return_vector=True)
+		duration = time.time() - start
+		print('Duration: %s' % duration)
+		print(f'{len(xv)} iterations:')
+		for n, x in enumerate(xv):
+			print(f'x[{n}] = {x:.12f}')
+		
+		start = time.time()
+		x, r = scipy.optimize.newton(func=f, x0=estimate, fprime=df, rtol=DEFAULT_EPS, full_output=True)
+		duration = time.time() - start
+		print('With scipy.optimize.newton:')
+		print('Duration: %s' % duration)
+		print('%i iterations, %i function calls' % (r.iterations, r.function_calls))
+
+	print()
+	print('Regula falsi then NR, range +/- 0.99999:')
+	xv = solve_bisection_then_nr(f, df, (-0.99999, 0.99999), return_vector=True)
+	for n, x in enumerate(xv):
+		print(f'x[{n}] = {x:.12f}')

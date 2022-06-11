@@ -107,14 +107,14 @@ class ZdfOnePoleBase(FilterBase):
 		if estimate is None:
 			estimate = self.get_estimate(x)
 		if self.use_newton:
-			y, _ = solvers.solve_nr(
+			y = solvers.solve_nr(
 				lambda y: self.y_zero_func(x=x, y=y, s=self.s, g=self.g),
 				lambda y: self.dy_zero_func(x=x, y=y, s=self.s, g=self.g),
 				estimate=estimate,
 				iter_stats=self.iter_stats,
 			)
 		else:
-			y, _ = solvers.solve_fb_iterative(
+			y = solvers.solve_fb_iterative(
 				lambda y: self.y_func(x=x, y=y, s=self.s, g=self.g),
 				estimate=estimate,
 				iter_stats=self.iter_stats,
