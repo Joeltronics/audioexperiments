@@ -27,6 +27,7 @@ MODULES = [
 	'filters.peak_filters',
 	'filters.pink',
 	'filters.zdf.cascade',
+	'filters.zdf.lm13700',
 	'filters.zdf.onepole',
 	'filters.zdf.svf',
 	'filters.zdf.tanh_lin_approx',

@@ -88,7 +88,7 @@ def gen_cos_sine(freq_norm: float, n_samp: int) -> Tuple[np.ndarray, np.ndarray]
 	return phase_to_cos(phase), phase_to_sine(phase)
 
 
-def gen_saw(freq_norm: float, n_samp: int) -> np.ndarray:
+def gen_saw(freq_norm: float, n_samp: int, start_phase=0.0) -> np.ndarray:
 	"""
 	Generate naive sawtooth wave (no anti-aliasing)
 
@@ -96,7 +96,7 @@ def gen_saw(freq_norm: float, n_samp: int) -> np.ndarray:
 	:param n_samp: number of samples
 	:return:
 	"""
-	return gen_phase(freq_norm, n_samp) * 2.0 - 1.0
+	return gen_phase(freq_norm, n_samp, start_phase=start_phase) * 2.0 - 1.0
 
 
 def gen_square(freq_norm: float, n_samp: int) -> np.ndarray:

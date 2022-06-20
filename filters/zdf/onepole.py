@@ -625,6 +625,7 @@ def plot_step(fc: float, n_samp_per_level: int):
 def get_parser():
 	parser = argparse.ArgumentParser(add_help=False)
 	parser.add_argument('--no-pool', action='store_false', dest='use_pool')
+	parser.add_argument('--lm13700', action='store_true', help='Include LM13700 filters')
 	return parser
 
 
@@ -642,6 +643,7 @@ def plot(args=None):
 
 
 def main(args=None):
+	from filters.zdf.lm13700 import Lm13700OnePolePositive, Lm13700OnePoleInverting
 
 	start = time.monotonic()
 	print_timestamped('Starting onepole audio test')
@@ -652,6 +654,12 @@ def main(args=None):
 		dict(constructor=LadderOnePole, name='Ladder'),
 		dict(constructor=IdealOtaOnePole, name='OTA'),
 	]
+
+	if args.lm13700:
+		filters += [
+			dict(constructor=Lm13700OnePolePositive, name='LM13700 noninverting'),
+			dict(constructor=Lm13700OnePoleInverting, name='LM13700 inverting'),
+		]
 
 	def test_filter(filter_spec, pool):
 		name = filter_spec['name']
