@@ -4,6 +4,7 @@ import argparse
 import importlib
 import inspect
 import sys
+import warnings
 
 
 MODULES = [
@@ -58,6 +59,9 @@ def parse_args():
 	plot_parser = argparse.ArgumentParser(add_help=False)
 	plot_parser.add_argument('-p', '--plot', action='store_true', help="run plot() function")
 
+	common_parser = argparse.ArgumentParser(add_help=False)
+	common_parser.add_argument('--werr', dest='warnings_are_errors', action='store_true', help='Turn warnings into exceptions')
+
 	subparsers = parser.add_subparsers(dest='module_name')
 
 	for module_name in MODULES:
@@ -71,7 +75,7 @@ def parse_args():
 
 		module = importlib.import_module(module_name)
 
-		parents = []
+		parents = [common_parser]
 
 		if hasattr(module, 'test'):
 			parents.append(test_parser)
@@ -132,6 +136,9 @@ def module_main(mod, module_name, module_args):
 
 def main():
 	args = parse_args()
+
+	if args.warnings_are_errors:
+		warnings.simplefilter("error")
 
 	if 'long' not in args:
 		args.long = False
