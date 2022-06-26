@@ -150,7 +150,7 @@ class FractionalAllpassDelayLine(ProcessorBase):
 
 	def peek_front(self):
 		y = self.dl.peek_front()
-		return self.ap.process_sample(y, update_state=False)
+		return self.ap.process_sample_no_state_update(y)[0]
 
 	def push_back(self, x: float):
 		# process sample without using the output, just so ap updates its state

@@ -14,6 +14,13 @@ class ProcessorBase:
 	def process_sample(self, sample: float) -> float:
 		raise NotImplementedError('process_sample() to be implemented by the child class!')
 
+	def process_sample_no_state_update(self, sample: float) -> Tuple[float, Any]:
+		""":returns: output, state"""
+		s = self.get_state()
+		y = self.process_sample(sample)
+		self.set_state(s)
+		return y, s
+
 	def process_sample_debug(self, sample: float) -> Tuple[float, dict]:
 		return self.process_sample(sample), dict()
 
@@ -67,6 +74,10 @@ class StatelessProcessorBase(ProcessorBase):
 
 	def process_sample(self, sample: float) -> float:
 		raise NotImplementedError('process_sample() to be implemented by the child class!')
+
+	def process_sample_no_state_update(self, sample: float) -> Tuple[float, Any]:
+		""":returns: output, state"""
+		return self.process_sample(sample), None
 
 	def reset(self) -> None:
 		pass

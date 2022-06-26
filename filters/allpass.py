@@ -2,7 +2,7 @@
 
 
 from processor import ProcessorBase
-from typing import Union
+from typing import Union, Tuple
 
 from delay_reverb import delay_line  # Somehow this works despite the circular dependency?!
 
@@ -18,21 +18,23 @@ class FractionalDelayAllpass(ProcessorBase):
 	def set_delay(self, delay_samples: float):
 		self.eta = (1.0 - delay_samples) / (1.0 + delay_samples)
 
-	def process_sample(self, x: float, update_state=True) -> float:
+	def process_sample(self, x: float) -> float:
+		y, zin = self.process_sample_no_state_update(x)
+		self.z1 = zin
+		return y
+
+	def process_sample_no_state_update(self, x: float) -> Tuple[float, float]:
 		zin = x - self.eta*self.z1
 		y = self.eta*zin + self.z1
-
-		if update_state:
-			self.z1 = zin
-		return y
+		return y, zin
 
 	def reset(self):
 		self.z1 = 0.
 
-	def get_state(self):
+	def get_state(self) -> float:
 		return self.z1
 
-	def set_state(self, state):
+	def set_state(self, state: float):
 		self.z1 = state
 
 
