@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 
-from math import pi, tanh, cosh, exp
-from typing import Tuple, Optional, Union
+from math import pi, tanh, cosh, exp, tan
+from typing import Tuple, Optional, Union, Any
 
 import numpy as np
 from matplotlib import pyplot as plt
 import scipy.optimize
 
-from filters.zdf.onepole import ZdfOnePoleBase
+from filters.allpass import FractionalDelayAllpass
+from filters.filter_base import FilterBase
+from filters.zdf.onepole import ZdfOnePoleBase, Rk4OnePoleBase
 from generation.signal_generation import gen_sine, gen_saw
 from solvers.iter_stats import IterStats
 import solvers.solvers as solvers
@@ -367,6 +369,42 @@ class Lm13700OnePolePositive(ZdfOnePoleBase):
 		return y, s0
 
 
+#class Lm13700OnePolePositiveRk4(FilterBase):
+class Lm13700OnePolePositiveRk4(Rk4OnePoleBase):
+	"""
+	Simulates LM13700-based OTA pole, using input & feedback into negative OTA terminal (positive terminal grounded)
+	(Note that buffer does not clip to supply voltages like a real buffer would!)
+	"""
+	V_SUPPLY = 12
+
+	# Voltage divider
+	#D = 560.0 / (68000.0 + 560.0)  # IR3109
+	D = 220.0 / (10000.0 + 220.0)  # Mutable Instruments SMR4
+
+	# Capacitance
+	#C = 240.0e-12  # IR3109
+	C = 1.0e-9  # SMR4
+
+	def __init__(self, wc):
+		self.i_abc = None
+		super().__init__(wc)
+
+	def set_freq(self, wc: float) -> None:
+		super().set_freq(wc)
+		self.i_abc = 2.0 * self.g * THERMAL_VOLTAGE * self.C / self.D
+
+	def dydt(self, xt: float, yt: float) -> float:
+		# FIXME: this blows up when it clips
+		# Clipping either yt or result to (-V_SUPPLY, V_SUPPLY) stops that, but introduces other problems
+		return 1.0 / self.C * lm13700(
+			v_in_pos=self.D*xt,
+			v_in_neg=self.D*yt,
+			v_out=yt,
+			i_abc=self.i_abc,
+			v_supply_pos=self.V_SUPPLY,
+			v_supply_neg=-self.V_SUPPLY)
+
+
 class Lm13700OnePoleInverting(ZdfOnePoleBase):
 	"""
 	Simulates LM13700-based OTA pole, using input & feedback into negative OTA terminal (positive terminal grounded)
@@ -408,7 +446,7 @@ class Lm13700OnePoleInverting(ZdfOnePoleBase):
 
 		return y
 
-	def process_sample_no_state_update(self, x: float, estimate=None, plot_solving_ax=None) -> Tuple[float, float]:
+	def process_sample_no_state_update(self, x: float, estimate=None, plot_solving_ax=None) -> Tuple[float, Any]:
 		"""
 		:returns: (output, state)
 		"""
@@ -805,11 +843,13 @@ def do_fft(x, n_fft, window=False):
 
 def plot_one_pole(fc=0.1, f_saw=0.01, gain=4.0, n_samp=2048):
 
-	iter_stats_negative = IterStats('LM13700 Inverting')
-	filt_negative = Lm13700OnePoleInverting(fc, iter_stats=iter_stats_negative)
-
 	iter_stats_positive = IterStats('LM13700 Positive')
 	filt_positive = Lm13700OnePolePositive(fc, iter_stats=iter_stats_positive)
+
+	filt_positive_rk4 = Lm13700OnePolePositiveRk4(fc)
+
+	iter_stats_negative = IterStats('LM13700 Inverting')
+	filt_negative = Lm13700OnePoleInverting(fc, iter_stats=iter_stats_negative)
 
 	fig, (time_plot, freq_plot) = plt.subplots(2, 1)
 	fig.suptitle(f'LM13700 one-pole filter, {fc=:g}, {f_saw=:g}, {gain=:g}')
@@ -823,14 +863,18 @@ def plot_one_pole(fc=0.1, f_saw=0.01, gain=4.0, n_samp=2048):
 	freq_plot.semilogx(f, fft_x, label='Input')
 
 	y_pos = filt_positive.process_vector(x)
+	y_pos_rk4 = filt_positive_rk4.process_vector(x)
 	y_neg = filt_negative.process_vector(x)
 
 	fft_y_pos, f = do_fft(y_pos, n_fft=n_samp, window=True)
+	fft_y_pos_rk4, f = do_fft(y_pos_rk4, n_fft=n_samp, window=True)
 	fft_y_neg, f = do_fft(y_neg, n_fft=n_samp, window=True)
-	time_plot.plot(t, y_pos, label='Non-inverting topology')
-	time_plot.plot(t, -y_neg, label='-1 * inverting topology')
-	freq_plot.semilogx(f, fft_y_pos, label='Non-inverting topology')
-	freq_plot.semilogx(f, fft_y_neg, label='-1 * inverting topology')
+	time_plot.plot(t, y_pos, label='Non-inverting')
+	time_plot.plot(t, y_pos_rk4, label='Non-inverting, RK4')
+	time_plot.plot(t, -y_neg, label='-1 * inverting')
+	freq_plot.semilogx(f, fft_y_pos, label='Non-inverting')
+	freq_plot.semilogx(f, fft_y_pos_rk4, label='Non-inverting, RK4')
+	freq_plot.semilogx(f, fft_y_neg, label='-1 * inverting')
 
 	time_plot.legend()
 	time_plot.set_xlim([0, 256])

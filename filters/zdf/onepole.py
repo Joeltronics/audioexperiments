@@ -5,11 +5,14 @@ from math import pi, tanh, cosh
 import math
 from multiprocessing import Pool
 import time
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Any
 
 import numpy as np
 from matplotlib import pyplot as plt
 
+from delay_reverb.delay_line import FIRDelayLine
+from filters.allpass import FractionalDelayAllpass
+from filters.filter_base import FilterBase
 from filters.filter_audio_test import test_non_resonant_filter
 from filters.filter_base import FilterBase
 from generation.signal_generation import gen_sine, gen_saw
@@ -29,6 +32,12 @@ Other future things to implement in single filter stages:
 
 
 class ZdfOnePoleBase(FilterBase):
+	"""Base class for TPT-based one-pole filters"""
+	
+	"""
+	TODO: See if I can roll integration discretization into this class too
+	Rk4OnePoleBase does this, and that makes the child classes extremely simple
+	"""
 
 	@staticmethod
 	def freq_to_gain(wc: float):
@@ -96,11 +105,11 @@ class ZdfOnePoleBase(FilterBase):
 		raise NotImplementedError('To be implemented by child class if using Newton and not overriding process_sample_no_state_update')
 
 	@staticmethod
-	def state_func(x: float, y: float, s: float, g: float) -> float:
+	def state_func(x: float, y: float, s: float, g: float) -> Any:
 		""" Function to determine next state value """
 		return 2.0 * y - s
 
-	def process_sample_no_state_update(self, x: float, estimate=None) -> Tuple[float, float]:
+	def process_sample_no_state_update(self, x: float, estimate=None) -> Tuple[float, Any]:
 		"""
 		:returns: (output, state)
 		"""
@@ -137,14 +146,136 @@ class ZdfOnePoleBase(FilterBase):
 
 	# TODO: override process_freq_sweep, see if can improve performance a bit
 
-	def get_state(self) -> float:
+	def get_state(self) -> Any:
 		return self.s
 
-	def set_state(self, state: float):
+	def get_integrator_state(self) -> float:
+		return self.s
+
+	def set_state(self, state: Any):
 		self.s = state
 
 	def reset(self):
 		self.s = 0.0
+
+
+class Rk4OnePoleBase(FilterBase):
+
+	# 50 is probably way overkill here (this leads to FIR kernel size 100)
+	FIR_LATENCY = 50
+
+	METHOD_IIR = 'iir'
+	METHOD_FIR = 'fir'
+	METHOD_LERP = 'lerp'
+	METHOD_SAWTOOTH_LERP = 'saw_lerp'
+
+	def __init__(self, wc: float, method=METHOD_IIR):
+
+		if method not in [self.METHOD_IIR, self.METHOD_FIR, self.METHOD_LERP, self.METHOD_SAWTOOTH_LERP]:
+			raise ValueError('Invalid method')
+
+		self.x_n = 0.0
+		self.y_n = 0.0
+
+		self.iir_allpass = (method == self.METHOD_IIR)
+		self.lerp = (method == self.METHOD_LERP)
+		self.fir_allpass = (method == self.METHOD_FIR)
+		self.sawtooth_lerp = (method == self.METHOD_SAWTOOTH_LERP)
+
+		self.fir_delay_time_0 = None
+		self.fir_delay_time_05 = None
+		self.fir_delay_time_1 = None
+		self.half_sample_delay = None
+
+		if self.iir_allpass:
+			self.half_sample_delay = FractionalDelayAllpass(0.5)
+
+		elif self.fir_allpass:
+			self.fir_delay_time_0 = self.FIR_LATENCY
+			self.fir_delay_time_05 = self.fir_delay_time_0 - 0.5
+			self.fir_delay_time_1 = self.fir_delay_time_0 - 1
+			self.half_sample_delay = FIRDelayLine(
+				delay_samples=self.fir_delay_time_05,
+				max_delay_samples=self.fir_delay_time_0,
+			)
+
+		self.g = None
+		self.set_freq(wc)
+
+	def set_freq(self, wc: float):
+		self.throw_if_invalid_freq(wc)
+		self.g = 2.0 * math.tan(pi * wc)
+
+	def dydt(self, xt: float, yt: float) -> float:
+		raise NotImplementedError("To be implemented by the child class!")
+
+	def process_sample(self, x: float) -> float:
+
+		y_n = self.y_n
+
+		if self.fir_allpass:
+			x_n = self.half_sample_delay[self.fir_delay_time_0]
+			x_n_1 = self.half_sample_delay[self.fir_delay_time_1]
+			x_n_05 = self.half_sample_delay.process_sample(x)
+
+		else:
+			x_n = self.x_n
+			x_n_1 = x
+
+			if self.iir_allpass:
+				x_n_05 = self.half_sample_delay.process_sample(x_n)
+
+			elif self.lerp:
+				x_n_05 = 0.5 * (x_n + x_n_1)
+
+			elif self.sawtooth_lerp:
+				# If we know incoming signal is a sawtooth wave with range +/- 1, we can perfectly interpolate
+				delta = x_n_1 - x_n
+
+				if delta < -1.0:
+					# Falling edge
+					x_n_05 = x_n + delta + 2.0
+					if x_n_05 > 1.0:
+						x_n_05 -= 2.0
+				elif delta > 1.0:
+					# Rising edge (i.e. with falling saw)
+					x_n_05 = x_n + delta - 2.0
+					if x_n_05 < -1.0:
+						x_n_05 += 2.0
+				else:
+					x_n_05 = 0.5 * (x_n + x_n_1)
+
+				#print(f'saw lerp: x[n]={x_n:.3f}, x[n+1]={x_n_1:.3f}, x[n+0.5]={x_n_05:.3f}')
+
+			else:
+				raise AssertionError
+
+		# step size is 1 sample, so h = 1
+
+		k1 = self.dydt(x_n, y_n)
+		k2 = self.dydt(x_n_05, y_n + (k1 / 2))
+		k3 = self.dydt(x_n_05, y_n + (k2 / 2))
+		k4 = self.dydt(x_n_1, y_n + k3)
+
+		incr = (k1 + k4) / 6 + (k2 + k3) / 3
+
+		y = y_n + incr
+
+		self.x_n = x
+		self.y_n = y
+		return y
+
+	def get_state(self) -> Any:
+		return self.x_n, self.half_sample_delay.get_state(), self.y_n
+
+	def set_state(self, state: Any) -> None:
+		self.x_n, half_sample_state, self.y_n = state
+		self.half_sample_delay.set_state(half_sample_state)
+
+	def reset(self) -> None:
+		self.half_sample_delay.reset()
+		self.x_n = 0.0
+		self.y_n = 0.0
 
 
 class BasicOnePole(FilterBase):
@@ -210,6 +341,11 @@ class TrapzOnePole(ZdfOnePoleBase):
 		return y, s
 
 
+class OnePoleRk4(Rk4OnePoleBase):
+	def dydt(self, xt: float, yt: float) -> float:
+		return self.g * (xt - yt)
+
+
 class TanhInputTrapzOnePole(ZdfOnePoleBase):
 
 	def __init__(self, wc, verbose=False):
@@ -255,6 +391,11 @@ class LadderOnePole(ZdfOnePoleBase):
 		return g * pow(cosh(y), -2.0) + 1.0
 
 
+class LadderOnePoleRk4(Rk4OnePoleBase):
+	def dydt(self, xt: float, yt: float) -> float:
+		return self.g * (tanh(xt) - tanh(yt))
+
+
 class IdealOtaOnePole(ZdfOnePoleBase):
 	def __init__(self, wc, iter_stats: Optional[IterStats] = None, use_newton=True, verbose=False):
 		super().__init__(wc, iter_stats=iter_stats, use_newton=use_newton)
@@ -282,6 +423,11 @@ class IdealOtaOnePole(ZdfOnePoleBase):
 		return g * pow(cosh(x - y), -2.0) + 1.0
 
 
+class IdealOtaOnePoleRk4(Rk4OnePoleBase):
+	def dydt(self, xt: float, yt: float) -> float:
+		return self.g * tanh(xt - yt)
+
+
 class IdealOtaOnePoleNegative(ZdfOnePoleBase):
 
 	def __init__(self, wc, iter_stats: Optional[IterStats] = None, use_newton=True, verbose=False):
@@ -291,14 +437,7 @@ class IdealOtaOnePoleNegative(ZdfOnePoleBase):
 			print('Ideal OTA negative filter: wc=%f, actual g=%f, approx g=%f' % (wc, self.g, pi*wc))
 
 	def get_estimate(self, x):
-
-		# Calculate linear case
-		# FIXME: this doesn't work
-		#return (self.s - self.g*x) / (1.0 - self.g)
-		#return self.m * (self.s - self.g*x)
-
-		# integrator state
-		return self.s
+		return super().get_estimate(-x)
 
 	@staticmethod
 	def y_func(x: float, y: float, s: float, g: float) -> float:
@@ -462,48 +601,100 @@ def freq_sweep(fc=0.003, n_samp=4096, n_sweep=None):
 	plt.grid()
 
 
-def nonlin_filter(fc=0.1, f_saw=0.01, gain=2.0, n_samp=2048, use_newton=True):
+def plot_nonlin_filters(fc=0.1, f_saw=0.01, gain=2.0, n_samp=2048, method='iteration', stats=False):
 
-	method_str = 'Newton-Raphson' if use_newton else 'Simple iteration'
+	# TODO: also plot some oversampled cases
+
+	METHOD_ITER = 'iteration'
+	METHOD_NEWTON = 'newton'
+	METHOD_RK4_LIN = 'rk4_lin'
+	METHOD_RK4_NONLIN = 'rk4_nonlin'
+
+	if method not in [METHOD_ITER, METHOD_NEWTON, METHOD_RK4_LIN, METHOD_RK4_NONLIN]:
+		raise ValueError(f'Invalid method: {method}')
+
+	method_str = {
+		METHOD_ITER: 'Simple iteration',
+		METHOD_NEWTON: 'Newton-Raphson',
+		METHOD_RK4_LIN: 'RK4',
+		METHOD_RK4_NONLIN: 'RK4',
+	}[method]
+
+	iterative = method in [METHOD_ITER, METHOD_NEWTON]
 
 	fig, (time_plot, freq_plot) = plt.subplots(2, 1)
 
-	fig.suptitle(method_str)
+	MAX_LATENCY = Rk4OnePoleBase.FIR_LATENCY
 
 	t = np.arange(n_samp)
-	x = gen_saw(f_saw, n_samp) * gain * 0.5
+	x_full = gen_saw(f_saw, n_samp + MAX_LATENCY, start_phase=0.5) * gain * 0.5
+	x = x_full[:n_samp]
 
 	fft_x, f = do_fft(x, n_fft=n_samp, window=True)
 
 	time_plot.plot(t, x, label='Input')
-	freq_plot.semilogx(f, fft_x, label='Input')
+	peaks_f, peaks_y = find_fft_peaks(f, fft_x)
+	line, = freq_plot.semilogx(f, fft_x, label='Input')
+	freq_plot.semilogx(peaks_f, peaks_y, '.', color=line.get_color())
 
-	stats_ladder = IterStats('Ladder, ' + method_str)
-	stats_ota = IterStats('Ideal OTA, ' + method_str)
-	stats_ota_neg = IterStats('Ideal OTA Negative, ' + method_str)
+	stats_ladder = IterStats('Ladder, ' + method_str) if (iterative and stats) else None
+	stats_ota = IterStats('Ideal OTA, ' + method_str) if (iterative and stats) else None
+	stats_ota_neg = IterStats('Ideal OTA Negative, ' + method_str) if (iterative and stats) else None
 
-	filters = [
-		dict(filt=TrapzOnePole(fc), name='Linear', iter_stats=None),
-		#dict(filt=TanhInputTrapzOnePole(fc), name='tanh input', iter_stats=None),
-		dict(filt=LadderOnePole(fc, use_newton=use_newton, iter_stats=stats_ladder), name='Ladder'),
-		dict(filt=IdealOtaOnePole(fc, use_newton=use_newton, iter_stats=stats_ota), name='OTA'),
-		dict(filt=IdealOtaOnePoleNegative(fc, use_newton=use_newton, iter_stats=stats_ota_neg), name='-OTA', negate=True),
-	]
+	if iterative:
+		fig.suptitle(method_str)
+		use_newton = (method == METHOD_NEWTON)
+		filters = [
+			dict(filt=TrapzOnePole(fc), name='Linear', iter_stats=None),
+			#dict(filt=TanhInputTrapzOnePole(fc), name='tanh input', iter_stats=None),
+			dict(filt=LadderOnePole(fc, use_newton=use_newton, iter_stats=stats_ladder), name='Ladder'),
+			dict(filt=IdealOtaOnePole(fc, use_newton=use_newton, iter_stats=stats_ota), name='OTA'),
+			dict(filt=IdealOtaOnePoleNegative(fc, use_newton=use_newton, iter_stats=stats_ota_neg), name='-OTA', negate=True),
+		]
+	elif method == METHOD_RK4_LIN:
+		fig.suptitle('RK4, linear filters')
+		filters = [
+			dict(filt=TrapzOnePole(fc), name='Linear (TPT)', iter_stats=None),
+			dict(filt=OnePoleRk4(fc, method='saw_lerp'), name='Linear RK4, perfect interpolation'),
+			dict(filt=OnePoleRk4(fc, method='lerp'), name='Linear RK4 lerp'),
+			dict(filt=OnePoleRk4(fc, method='iir'), name='Linear RK4 IIR Allpass'),
+			dict(filt=OnePoleRk4(fc, method='fir'), name='Linear RK4 FIR (latency compensated)', latency=Rk4OnePoleBase.FIR_LATENCY),
+		]
+	elif method == METHOD_RK4_NONLIN:
+		fig.suptitle('RK4, nonlinear filters')
+		filters = [
+			dict(filt=LadderOnePole(fc, use_newton=True), name='Ladder (TPT)'),
+			dict(filt=LadderOnePoleRk4(fc), name='Ladder RK4 IIR Allpass'),
+
+			dict(filt=IdealOtaOnePole(fc, use_newton=True), name='OTA (TPT)'),
+			dict(filt=IdealOtaOnePoleRk4(fc), name='OTA RK4 IIR Allpass'),
+		]
+	else:
+		raise AssertionError
 
 	for filter in filters:
 		filt = filter['filt']
 		name = filter['name']
 
 		negate = filter['negate'] if 'negate' in filter else False
+		latency = filter['latency'] if 'latency' in filter else 0
 
-		y = filt.process_vector(x)
+		assert latency <= MAX_LATENCY
+
+		if latency:
+			y = filt.process_vector(x_full[:n_samp + latency])
+			y = y[-n_samp:]
+		else:
+			y = filt.process_vector(x)
 
 		if negate:
 			y = -y
 
 		fft_y, f = do_fft(y, n_fft=n_samp, window=True)
 		time_plot.plot(t, y, label=name)
-		freq_plot.semilogx(f, fft_y, label=name)
+		peaks_f, peaks_y = find_fft_peaks(f, fft_y)
+		line, = freq_plot.semilogx(f, fft_y, label=name)
+		freq_plot.semilogx(peaks_f, peaks_y, '.', color=line.get_color())
 
 	time_plot.legend()
 	time_plot.set_xlim([0, 256])
@@ -512,7 +703,8 @@ def nonlin_filter(fc=0.1, f_saw=0.01, gain=2.0, n_samp=2048, use_newton=True):
 	freq_plot.grid()
 	
 	for stats in [stats_ladder, stats_ota, stats_ota_neg]:
-		stats.output()
+		if stats is not None:
+			stats.output()
 
 
 def plot_impulse_response(fc=0.003, n_samp=4096, n_fft=None):
@@ -555,6 +747,41 @@ def plot_impulse_response(fc=0.003, n_samp=4096, n_fft=None):
 
 	plt.semilogx(f, Y1, f, Y2)
 	plt.grid()
+
+
+def find_fft_peaks(f: np.ndarray, y: np.ndarray, peak_thresh=20.0) -> Tuple[list, list]:
+
+	if len(f) != len(y):
+		raise ValueError(f'Must have same length ({len(f)} != {len(y)})')
+
+	peaks_f = []
+	peaks_y = []
+
+	prev_peak_val = None
+
+	for idx in range(1, len(y) - 1):
+
+		val = y[idx]
+
+		is_local_maximum = (val >= y[idx - 1]) and (val > y[idx + 1])
+
+		if not is_local_maximum:
+			continue
+
+		# It's a local maximum, but is it a peak?
+		# e.g. window side lobes are local maxima, but we don't want those
+
+		if (prev_peak_val is None) or (peak_thresh is None):
+			is_peak = True
+		else:
+			is_peak = val > (prev_peak_val - peak_thresh)
+
+		if is_peak:
+			peaks_f.append(f[idx])
+			peaks_y.append(val)
+			prev_peak_val = val
+
+	return peaks_f, peaks_y
 
 
 def plot_step(fc: float, n_samp_per_level: int):
@@ -626,6 +853,7 @@ def get_parser():
 	parser = argparse.ArgumentParser(add_help=False)
 	parser.add_argument('--no-pool', action='store_false', dest='use_pool')
 	parser.add_argument('--lm13700', action='store_true', help='Include LM13700 filters')
+	parser.add_argument('--stats', action='store_true', help='Show iteration stats')
 	return parser
 
 
@@ -634,8 +862,8 @@ def plot(args=None):
 	#plot_impulse_response(fc=0.001, n_samp=32768)
 	#freq_sweep(fc=0.001, n_samp=2048)
 
-	for use_newton in [False, True]:
-		nonlin_filter(fc=0.1, f_saw=0.01, gain=4.0, n_samp=2048, use_newton=use_newton)
+	for method in ['iteration', 'newton', 'rk4_lin', 'rk4_nonlin']:
+		plot_nonlin_filters(fc=0.1, f_saw=0.01, gain=(2.0 if (method == 'rk4_lin') else 4.0), n_samp=2048, method=method, stats=args.stats)
 
 	plot_step(fc=0.1, n_samp_per_level=250)
 
@@ -650,9 +878,12 @@ def main(args=None):
 
 	filters = [
 		dict(constructor=TrapzOnePole, name='Linear'),
+		dict(constructor=OnePoleRk4, name='Linear RK4'),
 		dict(constructor=TanhInputTrapzOnePole, name='tanh input'),
 		dict(constructor=LadderOnePole, name='Ladder'),
+		dict(constructor=LadderOnePoleRk4, name='Ladder RK4'),
 		dict(constructor=IdealOtaOnePole, name='OTA'),
+		dict(constructor=IdealOtaOnePoleRk4, name='OTA RK4'),
 	]
 
 	if args.lm13700:

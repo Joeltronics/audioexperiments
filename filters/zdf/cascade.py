@@ -145,7 +145,7 @@ class IterativeCascadeFilterBase(ResonantFilterBase):
 		return y
 
 	def get_estimate(self, x):
-		return linear_4p_equation(x, self.poles[0].g, self.fb, [p.s for p in self.poles])
+		return linear_4p_equation(x, self.poles[0].g, self.fb, [p.get_integrator_state() for p in self.poles])
 
 	def process_sample(self, x):
 
@@ -251,7 +251,7 @@ class IterativeCascadeFilterBase(ResonantFilterBase):
 			prev_abs_err = abs_err
 
 		for pole, s in zip(self.poles, new_state):
-			pole.s = s
+			pole.set_state(s)
 
 		if self.stats_outer is not None:
 			self.stats_outer.add(
@@ -359,7 +359,7 @@ class LinearCascadeFilterIterative(ResonantFilterBase):
 				prev_abs_err = abs_err
 
 			for pole, s in zip(self.poles, new_state):
-				pole.s = s
+				pole.set_state(s)
 
 			if self.stats_outer is not None:
 				self.stats_outer.add(
