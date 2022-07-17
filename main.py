@@ -18,6 +18,7 @@ MODULES = [
 	'delay_reverb.dattorro_reverb',
 	'delay_reverb.delay_line',
 	'delay_reverb.multitap_comb',
+	'delay_reverb.stereo_delay',
 	'filters.allpass',
 	'filters.biquad',
 	'filters.cascade',

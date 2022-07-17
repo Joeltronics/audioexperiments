@@ -69,6 +69,32 @@ class ProcessorBase:
 		return self.process(*args, **kwargs)
 
 
+class StereoProcessorBase:
+	stateful = True
+
+	def process_sample(self, sample: Tuple[float, float]) -> Tuple[float, float]:
+		raise NotImplementedError('process_sample() to be implemented by the child class!')
+
+	def process_vector(self, vec: Tuple[np.ndarray, np.ndarray]) -> Tuple[np.ndarray, np.ndarray]:
+		y1 = np.zeros_like(vec[0])
+		y2 = np.zeros_like(vec[1])
+		for n, x in enumerate(zip(vec[0], vec[1])):
+			y1[n], y2[n] = self.process_sample(x)
+		return y1, y2
+
+	def reset(self) -> None:
+		"""Reset processor state (but not parameters)"""
+		raise NotImplementedError('reset() to be implemented by the child class!')
+
+	def get_state(self) -> Any:
+		"""Get processor state"""
+		raise NotImplementedError('get_state() to be implemented by the child class!')
+
+	def set_state(self, state: Any) -> None:
+		"""Set processor state"""
+		raise NotImplementedError('set_state() to be implemented by the child class!')
+
+
 class StatelessProcessorBase(ProcessorBase):
 	stateful = False
 
