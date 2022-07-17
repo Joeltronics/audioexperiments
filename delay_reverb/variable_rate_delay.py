@@ -12,7 +12,7 @@ import numpy as np
 from typing import Optional, Tuple
 
 from delay_reverb.delay_line import DelayLine
-from generation.signal_generation import gen_sine
+from generation.signal_generation import gen_sine, gen_saw
 from processor import ProcessorBase
 from utils.utils import lerp, reverse_lerp, to_dB
 
@@ -38,11 +38,28 @@ def do_fft(x, n_fft: Optional[int]=None, sample_rate=1.0, window=False):
 
 
 class VariableRateDelayLine(ProcessorBase):
-	def __init__(self, num_stages: int, clock_freq: float):
+	"""
+	Fixed length but variable rate delay line
+	"""
+	def __init__(self, num_stages: int, clock_freq: float, ramp_output=False):
+		"""
+		:param num_stages: number of delay line stages
+		:param clock_freq: clock frequency
+		:param ramp_output:
+			If False, will use zero-order hold, for behavior akin to BBD without reconstruction filter. Will alias
+				badly - not just around the clock rate (which may actually be desirable), but also around the operating
+				sample rate (which is undesired).
+			If True, will linearly interpolate output samples, for behavior more akin to tape. Also helps limit unwanted
+				aliasing.
+		"""
+
 		self.num_stages = num_stages
 		self.clock_freq = clock_freq
+		self.ramp_output = ramp_output
+
 		self.clock_phase = 0.0
 		self.x_prev = 0.0
+		self.y_prev = 0.0
 		self.y_curr = 0.0
 		self.delay_line = DelayLine(num_stages) if self.num_stages > 0 else None
 
@@ -59,10 +76,16 @@ class VariableRateDelayLine(ProcessorBase):
 		self.delay_line.reset()
 
 	def get_state(self):
-		return self.clock_phase, self.x_prev, self.y_curr, (self.delay_line.get_state() if self.delay_line is not None else None)
+		return (
+			self.clock_phase,
+			self.x_prev,
+			self.y_prev,
+			self.y_curr,
+			(self.delay_line.get_state() if self.delay_line is not None else None),
+		)
 
 	def set_state(self, state):
-		self.clock_phase, self.x_prev, self.y_curr, delay_line_state = state
+		self.clock_phase, self.x_prev, self.y_prev, self.y_curr, delay_line_state = state
 		if self.delay_line is not None:
 			self.delay_line.set_state(delay_line_state)
 
@@ -88,11 +111,8 @@ class VariableRateDelayLine(ProcessorBase):
 			# TODO: optional higher-order interpolation
 			x_interp_val = lerp((self.x_prev, x), x_interp_t)
 
-			"""
-			TODO: optional different modes besides naive aliased zero-order-hold:
-			* Zero order hold but with polyblep to reduce aliasing
-			* Ramp from one Y sample to the next (should behave a bit more like tape, also may alias less)
-			"""
+			# TODO: Optionally use polyblep to smooth step
+			self.y_prev = self.y_curr
 			if self.delay_line is None:
 				self.y_curr = x_interp_val
 			else:
@@ -105,13 +125,18 @@ class VariableRateDelayLine(ProcessorBase):
 
 			clock_phase_1 = clock_phase_1 % 1.0
 
+		if self.ramp_output:
+			y = lerp((self.y_prev, self.y_curr), clock_phase_1)
+		else:
+			y = self.y_curr
+
 		self.clock_phase = clock_phase_1
 		self.x_prev = x
 
 		if debug_info is not None:
 			debug_info['clock_phase'] = clock_phase_1
 
-		return self.y_curr, debug_info
+		return y, debug_info
 
 	def process_sample(self, sample: float) -> float:
 		y, _ = self._process_sample(sample, debug=False)
@@ -151,7 +176,15 @@ def _interp_clock_phase(clock_phase):
 	return clock_phase_t, clock_phase_y
 
 
-def _do_plot(num_stages: int, freq=0.0126, clock_freq=0.11, num_samples_plot=128, num_samples=1024, plot_clock_phase=False):
+def _do_plot(
+		num_stages: int,
+		freq=0.0126,
+		clock_freq=0.11,
+		num_samples_plot=128,
+		num_samples=1024,
+		ramp_output=False,
+		plot_clock_phase=False,
+		):
 
 	t_offset = int(ceil(num_stages / clock_freq))
 	plot_t_range = [t_offset, t_offset + num_samples_plot]
@@ -161,7 +194,7 @@ def _do_plot(num_stages: int, freq=0.0126, clock_freq=0.11, num_samples_plot=128
 	x = gen_sine(freq, n_samp=num_samples)
 	t = np.arange(num_samples)
 
-	delay = VariableRateDelayLine(num_stages=num_stages, clock_freq=clock_freq)
+	delay = VariableRateDelayLine(num_stages=num_stages, clock_freq=clock_freq, ramp_output=ramp_output)
 	y, debug_info = delay.process_vector_debug(x)
 
 	clock_phase = debug_info['clock_phase']
@@ -205,12 +238,12 @@ def _do_plot(num_stages: int, freq=0.0126, clock_freq=0.11, num_samples_plot=128
 	ax_f.legend()
 
 
-def _plot_clock_rate_step(num_stages=32, freq=0.0126, clock_freq=(0.13, 0.21), num_samples=4096):
+def _plot_clock_rate_step(num_stages=32, freq=0.0126, clock_freq=(0.13, 0.21), num_samples=4096, ramp_output=False):
 
 	x = gen_sine(freq, n_samp=num_samples)
 	t = np.arange(num_samples)
 
-	delay = VariableRateDelayLine(num_stages=num_stages, clock_freq=clock_freq[0])
+	delay = VariableRateDelayLine(num_stages=num_stages, clock_freq=clock_freq[0], ramp_output=ramp_output)
 	y1, debug_info_1 = delay.process_vector_debug(x[:num_samples//2])
 	delay.set_clock_freq(clock_freq[1])
 	y2, debug_info_2 = delay.process_vector_debug(x[num_samples//2:])
@@ -253,6 +286,65 @@ def _plot_clock_rate_step(num_stages=32, freq=0.0126, clock_freq=(0.13, 0.21), n
 	ax_f.legend()
 
 
+def _plot_chorus(num_stages=256, freq=0.0126, clock_freq=(0.05, 0.15), chorus_freq=0.01, num_samples=8192, saw=False):
+
+	x = gen_saw(freq, n_samp=num_samples) if saw else gen_sine(freq, n_samp=num_samples)
+	t = np.arange(num_samples)
+
+	clock_avg = 0.5 * (clock_freq[1] + clock_freq[0])
+	clock_mod = 0.5 * (clock_freq[1] - clock_freq[0])
+
+	clock_freq = clock_mod * gen_sine(chorus_freq, n_samp=num_samples) + clock_avg
+
+	y = np.zeros(num_samples)
+	clock_phase = np.zeros(num_samples)
+	x_interp_t = np.zeros(num_samples)
+	x_interp_val = np.zeros(num_samples)
+
+	delay = VariableRateDelayLine(num_stages=num_stages, clock_freq=clock_freq[0], ramp_output=True)
+
+	for n in range(num_samples):
+		xn = x[n]
+		yn, debug_info = delay.process_sample_debug(xn)
+		y[n] = yn
+		clock_phase[n] = debug_info['clock_phase']
+		x_interp_t[n] = debug_info['x_interp_t']
+		x_interp_val[n] = debug_info['x_interp_val']
+
+	fig, (ax_t, ax_f) = plt.subplots(2, 1)
+	fig.suptitle(f'BBD style chorus ({num_stages} stages), average clock {clock_avg:g}')
+
+	ax_f.axvline(freq, label='X frequency')
+	ax_f.axvline(clock_freq[0], label='Clock', color='orange')
+
+	ax_t.plot(t, x, '-', label='X')
+	
+	fft_x, f = do_fft(x, window=True)
+	ax_f.plot(f, fft_x, label='X')
+
+	mask = np.isfinite(x_interp_t)
+	ax_t.plot(t[mask] + x_interp_t[mask] - 1, x_interp_val[mask], '.', label='X samples')
+
+	line, = ax_t.plot(t, y, '-', label='Y')
+
+	fft_y, f = do_fft(y, window=True)
+	ax_f.plot(f, fft_y, label='Y', color=line.get_color(), zorder=-1)
+
+	clock_phase_t, clock_phase_y = _interp_clock_phase(clock_phase)
+	ax_t.plot(clock_phase_t, clock_phase_y, label='Clock phase', zorder=-1)
+
+	ax_t.set_xlabel('t (samples)')
+	ax_t.grid()
+	ax_t.legend()
+
+	ax_f.set_xlabel('f')
+	ax_f.set_ylabel('FFT (dB)')
+	ax_f.grid()
+	ax_f.legend()
+
+	pass
+
+
 def get_parser():
 	parser = argparse.ArgumentParser(add_help=False)
 	parser.add_argument('--clock', action='store_true', dest='plot_clock_phase', help='Plot clock phase')
@@ -260,9 +352,14 @@ def get_parser():
 
 
 def plot(args):
-	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase)
-	_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase)
-	_plot_clock_rate_step()
+	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=False)
+	_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, ramp_output=False)
+	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=True)
+	_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, ramp_output=True)
+	_plot_clock_rate_step(ramp_output=False)
+	_plot_clock_rate_step(ramp_output=True)
+	_plot_chorus(saw=False)
+	_plot_chorus(saw=True)
 	plt.show()
 
 
