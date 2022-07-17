@@ -19,6 +19,7 @@ MODULES = [
 	'delay_reverb.delay_line',
 	'delay_reverb.multitap_comb',
 	'delay_reverb.stereo_delay',
+	'delay_reverb.variable_rate_delay',
 	'filters.allpass',
 	'filters.biquad',
 	'filters.cascade',
