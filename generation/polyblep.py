@@ -12,6 +12,7 @@ from generation.signal_generation import gen_phase
 from utils import utils
 
 
+@np.vectorize
 def polyblep(t):
 	"""
 	PolyBLEP - polynomial bandlimited step
@@ -28,6 +29,7 @@ def polyblep(t):
 		return  0.5*(t*t) + t + 0.5
 
 
+@np.vectorize
 def diff_polyblep(t):
 	"""
 	Difference between naive step and PolyBLEP
@@ -42,6 +44,7 @@ def diff_polyblep(t):
 		return  0.5*(t*t) + t + 0.5
 
 
+@np.vectorize
 def integral_polyblep(t, C=1.0):
 	if t < -1.0:
 		return 0.5*t + C
@@ -53,6 +56,7 @@ def integral_polyblep(t, C=1.0):
 		return -1/6*(t*t*t) - 0.5*(t*t) - 1/6 + C
 
 
+@np.vectorize
 def integral_diff_polyblep(t):
 	if (t > 1.0) or (t < -1.0):
 		return 0.0
@@ -97,62 +101,79 @@ def saw_polyblep(freq, n_samp, start_phase=0.0, size=1.0, advanced_poly=False):
 	return y, phase_vec
 
 
-def square(freq, n_samp, start_phase=0.0, duty_cycle=0.5):
+def square_polyblep(freq, n_samp, start_phase=0.0, size=1.0):
 	y = np.zeros(n_samp)
 	phase_vec = gen_phase(freq, n_samp, start_phase)
 
-	prev_ph = start_phase
+	p_freq = 0.5 * freq * size
+
 	for n, ph in enumerate(phase_vec):
 
-		# TODO: PolyBLEP is 2 samples, this only deals with 1
+		# This could be optimized, but is written for clarity over performance
 
-		if ph < prev_ph:
-			# 1 => -1
+		if ph < p_freq:
+			# 2nd half of high-low transition
+			t = utils.scale(ph, (0.0, p_freq), (0.0, 1.0))
+			p = polyblep(t)
+			yn = utils.scale(p, (0.0, 1.0), (1.0, -1.0))
 
-			# y[n] = 0.0
+		elif ph < (0.5 - p_freq):
+			# Low
+			yn = -1.0
 
-			# Find zero crossing location between samples (value 0.0-1.0)
-			zero_x_loc = (duty_cycle - prev_ph) / (ph - prev_ph + 1)
+		elif ph < 0.5:
+			# 1st half of low-high transition
+			t = utils.scale(ph, (0.5 - p_freq, 0.5), (-1.0, 0.0))
+			p = polyblep(t)
+			yn = utils.scale(p, (0.0, 1.0), (-1.0, 1.0))
 
-			y[n] = polyblep(zero_x_loc)
+		elif ph < 0.5 + p_freq:
+			# 2nd half of low-high transition
+			t = utils.scale(ph, (0.5, 0.5 + p_freq), (0.0, 1.0))
+			p = polyblep(t)
+			yn = utils.scale(p, (0.0, 1.0), (-1.0, 1.0))
 
-		elif (ph >= duty_cycle) and (prev_ph < duty_cycle):
-			# -1 => 1
+		elif ph < 1.0 - p_freq:
+			# High, no polyblep
+			yn = 1.0
 
-			# y[n] = 0.0
-
-			# Find zero crossing location between samples (value 0.0-1.0)
-			zero_x_loc = (duty_cycle - prev_ph) / (ph - prev_ph)
-
-			y[n] = -polyblep(zero_x_loc)
+		elif ph < 1.0:
+			# 1st half of high-low transition
+			t = utils.scale(ph, (1.0 - p_freq, 1.0), (-1.0, 0.0))
+			p = polyblep(t)
+			yn = utils.scale(p, (0.0, 1.0), (1.0, -1.0))
 
 		else:
-			y[n] = 1.0 if (ph >= duty_cycle) else -1.0
+			raise AssertionError('Invalid phase')
 
-		prev_ph = ph
+		y[n] = yn
 
 	return y
 
 
 def plot_polyblep(n_pts=201):
-	xx = np.linspace(-2.0, 2.0, n_pts)
+	x = np.linspace(-2.0, 2.0, n_pts)
 	d = np.zeros(n_pts)
 	y = np.zeros(n_pts)
 	i = np.zeros(n_pts)
 	id = np.zeros(n_pts)
 
-	for n, x in enumerate(xx):
-		d[n] = diff_polyblep(x)
-		y[n] = polyblep(x)
-		i[n] = integral_polyblep(x)
-		id[n] = integral_diff_polyblep(x)
+	d = diff_polyblep(x)
+	y = polyblep(x)
+	i = integral_polyblep(x)
+	id = integral_diff_polyblep(x)
 
 	# id = 1.0 - 0.5*np.abs(xx) - i
 
 	plt.figure()
-	plt.plot(xx, y, xx, d, xx, i, xx, id)
+
+	plt.plot(x, y, label='Step')
+	plt.plot(x, d, label='DiffStep')
+	plt.plot(x, i, label='Integral')
+	plt.plot(x, id, label='IntegralDiff')
+
 	plt.title('PolyBLEPs')
-	plt.legend(['Step', 'DiffStep', 'Integral', 'IntegralDiff'])
+	plt.legend()
 	plt.grid()
 
 
@@ -166,7 +187,7 @@ def _to_dB_norm(vals):
 	return vals
 
 
-def plot_full(plot_advanced=False):
+def plot_full(saw=True, plot_advanced=False):
 	fs = 44100
 	f = 440
 	n_samp = 1024 * 4
@@ -175,12 +196,16 @@ def plot_full(plot_advanced=False):
 	t = np.arange(n_samp)
 	w = f / fs
 
-	#y = square(w, n_samp)
-	y, ph = saw_polyblep(w, n_samp, size=oversamp)
-	if plot_advanced:
-		y_adv, _ = saw_polyblep(w, n_samp, size=oversamp, advanced_poly=True)
-
-	naive = ph * 2.0 - 1.0
+	if saw:
+		y, ph = saw_polyblep(w, n_samp, size=oversamp)
+		if plot_advanced:
+			y_adv, _ = saw_polyblep(w, n_samp, size=oversamp, advanced_poly=True)
+		
+		naive = ph * 2.0 - 1.0
+	else:
+		ph = gen_phase(w, n_samp)
+		y = square_polyblep(w, n_samp, size=oversamp)
+		naive = (ph >= 0.5) * 2.0 - 1.0
 
 	polyblep_mag = _to_dB_norm(_fft(y))
 
@@ -195,12 +220,13 @@ def plot_full(plot_advanced=False):
 
 	plt.subplot(211)
 	if plot_advanced:
-		plt.plot(t, y, '.-', t, y_adv, '.-')
-		plt.legend(['PolyBLEP, size=%.0f' % oversamp, 'Advanced PolyBLEP'])
+		plt.plot(t, y, '.-', label=f'PolyBLEP, size={oversamp:.0f}')
+		plt.plot(t, y_adv, '.-', label='Advanced PolyBLEP')
 	else:
-		plt.plot(t, naive, '.-', t, y, '.-')
-		plt.legend(['Naive', 'PolyBLEP, size=%.0f' % oversamp])
+		plt.plot(t, naive, '.-', label='Naive')
+		plt.plot(t, y, '.-', label=f'PolyBLEP, size={oversamp:.0f}')
 
+	plt.legend()
 	plt.title('Naive vs PolyBLEP')
 	plt.grid()
 	plt.xlim([0, 512])
@@ -216,8 +242,10 @@ def plot_full(plot_advanced=False):
 	print(len(f_non_alias), len(Y_non_alias), len(f_alias), len(Y_alias))
 	print(np.min(f_non_alias), np.max(f_non_alias), np.min(f_alias), np.max(f_alias))
 
-	plt.plot(f, naive_mag, f_non_alias, Y_non_alias, f_alias, Y_alias)
-	plt.legend(['Naive', 'PolyBLEP', 'Aliased'])
+	plt.plot(f, naive_mag, label='Naive')
+	plt.plot(f_non_alias, Y_non_alias, label='PolyBLEP')
+	plt.plot(f_alias, Y_alias, label='Aliased')
+	plt.legend()
 	plt.xlim([0, 0.5])
 	plt.xticks([1 / 32.0, 1 / 16.0, 1 / 8.0, 1 / 4.0, 1 / 2.0])
 
@@ -291,7 +319,7 @@ def plot_cycle(fft_size=512, plot_phase=False):
 		plt.grid()
 
 
-def tri_from_saw_square(extra_plot=False):
+def tri_from_saw_square_polyblep(extra_plot=False):
 	fs = 44100
 	f = 440
 	n_samp = 1024 * 4
@@ -301,7 +329,7 @@ def tri_from_saw_square(extra_plot=False):
 	w = f / fs
 
 	y_saw, ph = saw_polyblep(w, n_samp, size=oversamp)
-	# y_squ = square(w, n_samp)
+	# y_squ = square_polyblep(w, n_samp)
 	y_squ = np.array([(val >= 0.5) * 2 - 1 for val in ph])  # naive square
 	y = y_saw * y_squ
 
@@ -318,7 +346,9 @@ def tri_from_saw_square(extra_plot=False):
 		plt.subplot(211)
 	# plt.plot(t, naive, '.-', t, y, '.-')
 	# plt.legend(['Naive','PolyBLEP, oversamp=%.0f' % oversamp])
-	plt.plot(t, y_squ, '.-', t, y_saw, '.-', t, y, '.-')
+	plt.plot(t, y_squ, '.-')
+	plt.plot(t, y_saw, '.-')
+	plt.plot(t, y, '.-')
 	plt.grid()
 	plt.xlim([0, 512])
 	plt.ylim([-1.1, 1.1])
@@ -335,8 +365,10 @@ def tri_from_saw_square(extra_plot=False):
 		print(len(f_non_alias), len(Y_non_alias), len(f_alias), len(Y_alias))
 		print(np.min(f_non_alias), np.max(f_non_alias), np.min(f_alias), np.max(f_alias))
 
-		plt.plot(f, naive_mag, f_non_alias, Y_non_alias, f_alias, Y_alias)
-		plt.legend(['Naive', 'PolyBLEP', 'Aliased'])
+		plt.plot(f, naive_mag, f_non_alias, label='Naive')
+		plt.plot(Y_non_alias, label='PolyBLEP')
+		plt.plot(f_alias, Y_alias, label='Aliased')
+		plt.legend()
 		plt.xlim([0, 0.5])
 		plt.xticks([1/32.0, 1/16.0, 1/8.0, 1/4.0, 1/2.0])
 
@@ -346,9 +378,10 @@ def tri_from_saw_square(extra_plot=False):
 
 def plot(args):
 	plot_polyblep()
-	plot_full()
+	plot_full(saw=True)
+	plot_full(saw=False)
 	plot_cycle()
-	tri_from_saw_square()
+	tri_from_saw_square_polyblep()
 
 	plt.show()
 
