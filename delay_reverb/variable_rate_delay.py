@@ -14,8 +14,9 @@ from typing import Optional, Tuple
 
 from delay_reverb.delay_line import DelayLine
 from generation.signal_generation import gen_sine, gen_saw
+from generation.polyblep import polyblep
 from processor import ProcessorBase
-from utils.utils import lerp, reverse_lerp, to_dB
+from utils.utils import lerp, reverse_lerp, scale, to_dB
 
 
 def do_fft(x, n_fft: Optional[int]=None, sample_rate=1.0, window=False):
@@ -42,22 +43,34 @@ class VariableRateDelayLine(ProcessorBase):
 	"""
 	Fixed length but variable rate delay line
 	"""
-	def __init__(self, num_stages: int, clock_freq: float, ramp_output=False, linblep=False):
+	def __init__(
+			self,
+			num_stages: int,
+			clock_freq: float,
+			ramp_output=True,
+			polyblep: Optional[float]=None,
+			linblep=False,
+			):
 		"""
-		:param num_stages: number of delay line stages
+		:param num_stages: number of delay line stages, or 0 for sample & hold simulatioj
 		:param clock_freq: clock frequency
 		:param ramp_output:
 			If False, will use zero-order hold, for behavior akin to BBD without reconstruction filter. Will alias
 				badly - not just around the clock rate (which may actually be desirable for analog emulation), but also
 				around the operating sample rate (which is undesired).
 			If True, will linearly interpolate output samples, for more tape-like behavior. Also helps limit unwanted
-				aliasing.
-		:param linblep: If True, will use linear bandlimited step (ignored if ramp_output)
+				aliasing, so also recommended for BBD emulation when using a good external reconstruction filter.
+		:param polyblep: Size of polyblep step to use (ignored if ramp_output). num_stages must be > 0
+		:param linblep: If True, will use linear bandlimited step (ignored if ramp_output or polyblep)
 		"""
+
+		if polyblep and not num_stages:
+			raise ValueError('Must set nonzero num_stages if using polyblep')
 
 		self.num_stages = num_stages
 		self.clock_freq = clock_freq
 		self.ramp_output = ramp_output
+		self.half_polyblep_size = 0.5 * polyblep if polyblep else None
 		self.linblep = linblep
 
 		self.clock_phase = 0.0
@@ -132,6 +145,21 @@ class VariableRateDelayLine(ProcessorBase):
 
 		if self.ramp_output:
 			y = lerp((self.y_prev, self.y_curr), clock_phase_1)
+
+		elif self.half_polyblep_size is not None:
+			p_freq = self.clock_freq * self.half_polyblep_size
+			if clock_phase_1 > 1.0 - p_freq:
+				# Right before edge
+				p_idx = scale(clock_phase_1, (1.0 - p_freq, 1.0), (-1.0, 0.0))
+				p = polyblep(p_idx)
+				y = lerp((self.y_curr, self.delay_line.peek_front()), p)
+			elif clock_phase_1 < p_freq:
+				# Right after edge
+				p_idx = scale(clock_phase_1, (0.0, p_freq), (0.0, 1.0))
+				p = polyblep(p_idx)
+				y = lerp((self.y_prev, self.y_curr), p)
+			else:
+				y = self.y_curr
 
 		elif self.linblep and x_interp_t is not None:
 			"""
@@ -381,6 +409,9 @@ def get_parser():
 def plot(args):
 	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=False)
 	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=False, linblep=True)
+	_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep=1)
+	_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep=2)
+	_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep=4)
 	_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, ramp_output=False)
 	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=True)
 	_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, ramp_output=True)
