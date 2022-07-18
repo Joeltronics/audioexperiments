@@ -9,6 +9,7 @@ import argparse
 from math import ceil
 from matplotlib import pyplot as plt
 import numpy as np
+import scipy.signal
 from typing import Optional, Tuple
 
 from delay_reverb.delay_line import DelayLine
@@ -41,21 +42,23 @@ class VariableRateDelayLine(ProcessorBase):
 	"""
 	Fixed length but variable rate delay line
 	"""
-	def __init__(self, num_stages: int, clock_freq: float, ramp_output=False):
+	def __init__(self, num_stages: int, clock_freq: float, ramp_output=False, linblep=False):
 		"""
 		:param num_stages: number of delay line stages
 		:param clock_freq: clock frequency
 		:param ramp_output:
 			If False, will use zero-order hold, for behavior akin to BBD without reconstruction filter. Will alias
-				badly - not just around the clock rate (which may actually be desirable), but also around the operating
-				sample rate (which is undesired).
-			If True, will linearly interpolate output samples, for behavior more akin to tape. Also helps limit unwanted
+				badly - not just around the clock rate (which may actually be desirable for analog emulation), but also
+				around the operating sample rate (which is undesired).
+			If True, will linearly interpolate output samples, for more tape-like behavior. Also helps limit unwanted
 				aliasing.
+		:param linblep: If True, will use linear bandlimited step (ignored if ramp_output)
 		"""
 
 		self.num_stages = num_stages
 		self.clock_freq = clock_freq
 		self.ramp_output = ramp_output
+		self.linblep = linblep
 
 		self.clock_phase = 0.0
 		self.x_prev = 0.0
@@ -102,6 +105,8 @@ class VariableRateDelayLine(ProcessorBase):
 				x_interp_val=None,
 			)
 
+		x_interp_t = None
+
 		if clock_phase_1 >= 1.0:
 
 			assert clock_phase_1 < 2.0
@@ -127,6 +132,15 @@ class VariableRateDelayLine(ProcessorBase):
 
 		if self.ramp_output:
 			y = lerp((self.y_prev, self.y_curr), clock_phase_1)
+
+		elif self.linblep and x_interp_t is not None:
+			"""
+			Interpolation is backwards from what you might expect:
+			* If x_interp_t near 0, transition was near last sample, so we want to be mostly the new sample
+			* If x_interp_t near 1, transition was near current sample, so we want to be mostly the previous
+			"""
+			y = lerp((self.y_curr, self.y_prev), x_interp_t)
+
 		else:
 			y = self.y_curr
 
@@ -182,8 +196,8 @@ def _do_plot(
 		clock_freq=0.11,
 		num_samples_plot=128,
 		num_samples=1024,
-		ramp_output=False,
 		plot_clock_phase=False,
+		**kwargs
 		):
 
 	t_offset = int(ceil(num_stages / clock_freq))
@@ -194,16 +208,25 @@ def _do_plot(
 	x = gen_sine(freq, n_samp=num_samples)
 	t = np.arange(num_samples)
 
-	delay = VariableRateDelayLine(num_stages=num_stages, clock_freq=clock_freq, ramp_output=ramp_output)
+	delay = VariableRateDelayLine(num_stages=num_stages, clock_freq=clock_freq, **kwargs)
 	y, debug_info = delay.process_vector_debug(x)
+
+	b, a = scipy.signal.butter(N=8, Wn=0.5*clock_freq)
+	y_reconstructed = scipy.signal.filtfilt(b, a, y)
 
 	clock_phase = debug_info['clock_phase']
 	x_interp_t = debug_info['x_interp_t']
 	x_interp_val = debug_info['x_interp_val']
 
+	ramp = ('ramp' in kwargs and kwargs['ramp'])
+
 	fig, (ax_t, ax_f) = plt.subplots(2, 1)
-	if num_stages:
+	if num_stages and ramp:
+		fig.suptitle(f'Tape-ish delay ({num_stages} samples), clock rate {clock_freq:g}')
+	elif num_stages:
 		fig.suptitle(f'BBD style delay ({num_stages} stages), clock rate {clock_freq:g}')
+	elif ramp:
+		fig.suptitle(f'Ramp, clock rate {clock_freq:g}')
 	else:
 		fig.suptitle(f'Zero-order hold, clock rate {clock_freq:g}')
 
@@ -221,7 +244,11 @@ def _do_plot(
 	line, = ax_t.plot(t, y, '.-', label='Y')
 
 	fft_y, f = do_fft(y, window=True)
-	ax_f.plot(f, fft_y, label='Y', color=line.get_color(), zorder=-1)
+	ax_f.plot(f, fft_y, label='Y', color=line.get_color(), zorder=-2)
+
+	line, = ax_t.plot(t, y_reconstructed, label='Y filtered')
+	fft_y_r, f = do_fft(y_reconstructed, window=True)
+	ax_f.plot(f, fft_y_r, label='Y filtered', color=line.get_color(), zorder=-1)
 
 	if plot_clock_phase:
 		clock_phase_t, clock_phase_y = _interp_clock_phase(clock_phase)
@@ -238,12 +265,12 @@ def _do_plot(
 	ax_f.legend()
 
 
-def _plot_clock_rate_step(num_stages=32, freq=0.0126, clock_freq=(0.13, 0.21), num_samples=4096, ramp_output=False):
+def _plot_clock_rate_step(num_stages=32, freq=0.0126, clock_freq=(0.13, 0.21), num_samples=2048, **kwargs):
 
 	x = gen_sine(freq, n_samp=num_samples)
 	t = np.arange(num_samples)
 
-	delay = VariableRateDelayLine(num_stages=num_stages, clock_freq=clock_freq[0], ramp_output=ramp_output)
+	delay = VariableRateDelayLine(num_stages=num_stages, clock_freq=clock_freq[0], **kwargs)
 	y1, debug_info_1 = delay.process_vector_debug(x[:num_samples//2])
 	delay.set_clock_freq(clock_freq[1])
 	y2, debug_info_2 = delay.process_vector_debug(x[num_samples//2:])
@@ -353,6 +380,7 @@ def get_parser():
 
 def plot(args):
 	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=False)
+	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=False, linblep=True)
 	_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, ramp_output=False)
 	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=True)
 	_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, ramp_output=True)
