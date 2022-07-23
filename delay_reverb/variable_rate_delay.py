@@ -43,7 +43,8 @@ class VariableRateDelayLine(ProcessorBase):
 	"""
 	Fixed length but variable rate delay line
 
-	No built-in anti-aliasing/anti-imaging filters - would typically expect to oversample this
+	No built-in anti-aliasing/anti-imaging filters - would typically expect to use external filters, possibly also
+	with oversampling
 
 	Can also set 0 stages to use as a lo-fi "bitcrusher" style resampler (i.e. zero-order hold)
 	"""
@@ -64,14 +65,15 @@ class VariableRateDelayLine(ProcessorBase):
 				around the operating sample rate (which is undesired).
 			If True, will linearly interpolate output samples, for more tape-like behavior. Also helps limit unwanted
 				aliasing, so also recommended for BBD emulation when using a good external reconstruction filter.
-				Increases delay by 1/2 clock cycle
-		:param polyblep_size: Size of polyblep step to use (ignored if ramp_output). num_stages must be > 0
+				Increases delay by 1/2 clock relative to step case non-ramp case.
+		:param polyblep_size: Size of polyblep step to use (ignored if ramp_output).
+			If num_stages = 0, adds delay of (polyblep_size/2) samples.
 		:param linblep: If True, will use linear bandlimited step (ignored if ramp_output or polyblep_size)
-		"""
 
-		# TODO: could handle this case - but would have to add a delay of (polyblep_size/2) samples
-		if polyblep_size and not num_stages:
-			raise ValueError('Must set nonzero num_stages if using polyblep_size')
+		:note:
+			Average delay without ramp is ((num_stages + 0.5) / clock_freq) samples
+			Average delay with ramp is ((num_stages + 1) / clock_freq) samples
+		"""
 
 		self.clock_freq = None
 
@@ -162,18 +164,28 @@ class VariableRateDelayLine(ProcessorBase):
 
 		elif self.half_polyblep_size is not None:
 			p_freq = self.clock_freq * self.half_polyblep_size
-			if clock_phase_1 > 1.0 - p_freq:
-				# Right before edge
-				p_idx = scale(clock_phase_1, (1.0 - p_freq, 1.0), (-1.0, 0.0))
-				p = polyblep(p_idx)
-				y = lerp((self.y_curr, self.delay_line.peek_front()), p)
-			elif clock_phase_1 < p_freq:
-				# Right after edge
-				p_idx = scale(clock_phase_1, (0.0, p_freq), (0.0, 1.0))
-				p = polyblep(p_idx)
-				y = lerp((self.y_prev, self.y_curr), p)
+			if self.delay_line is not None:
+				if clock_phase_1 > 1.0 - p_freq:
+					# Right before edge
+					p_idx = scale(clock_phase_1, (1.0 - p_freq, 1.0), (-1.0, 0.0))
+					p = polyblep(p_idx)
+					y = lerp((self.y_curr, self.delay_line.peek_front()), p)
+				elif clock_phase_1 < p_freq:
+					# Right after edge
+					p_idx = scale(clock_phase_1, (0.0, p_freq), (0.0, 1.0))
+					p = polyblep(p_idx)
+					y = lerp((self.y_prev, self.y_curr), p)
+				else:
+					y = self.y_curr
 			else:
-				y = self.y_curr
+				if clock_phase_1 < 2.0 * p_freq:
+					# Transition
+					p_idx = scale(clock_phase_1, (0.0, 2.0*p_freq), (-1.0, 1.0))
+					p = polyblep(p_idx)
+					y = lerp((self.y_prev, self.y_curr), p)
+				else:
+					# Not a transition
+					y = self.y_curr
 
 		elif self.linblep and x_interp_t is not None:
 			"""
@@ -531,6 +543,9 @@ def plot(args, verbose=False):
 	_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep_size=1, ramp_output=False, verbose=verbose)
 	_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep_size=2, ramp_output=False, verbose=verbose)
 	_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep_size=4, ramp_output=False, verbose=verbose)
+	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, polyblep_size=1, ramp_output=False, verbose=verbose)
+	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, polyblep_size=2, ramp_output=False, verbose=verbose)
+	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, polyblep_size=4, ramp_output=False, verbose=verbose)
 	_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, ramp_output=False, verbose=verbose)
 	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=True, verbose=verbose)
 	_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, ramp_output=True, verbose=verbose)
