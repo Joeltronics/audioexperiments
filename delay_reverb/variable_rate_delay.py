@@ -6,17 +6,17 @@ Equivalent to behavior of BBD, PT2399, or most tape delays
 """
 
 import argparse
-from math import ceil
+from math import floor, ceil
 from matplotlib import pyplot as plt
 import numpy as np
 import scipy.signal
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 from delay_reverb.delay_line import DelayLine
 from generation.signal_generation import gen_sine, gen_saw
 from generation.polyblep import polyblep
 from processor import ProcessorBase
-from utils.utils import lerp, reverse_lerp, scale, to_dB
+from utils.utils import lerp, reverse_lerp, scale, to_dB, index_of, parabolic_interp_find_peak
 
 
 def do_fft(x, n_fft: Optional[int]=None, sample_rate=1.0, window=False):
@@ -42,54 +42,67 @@ def do_fft(x, n_fft: Optional[int]=None, sample_rate=1.0, window=False):
 class VariableRateDelayLine(ProcessorBase):
 	"""
 	Fixed length but variable rate delay line
+
+	No built-in anti-aliasing/anti-imaging filters - would typically expect to oversample this
+
+	Can also set 0 stages to use as a lo-fi "bitcrusher" style resampler (i.e. zero-order hold)
 	"""
 	def __init__(
 			self,
 			num_stages: int,
 			clock_freq: float,
 			ramp_output=True,
-			polyblep: Optional[float]=None,
+			polyblep_size: Optional[float]=None,
 			linblep=False,
 			):
 		"""
-		:param num_stages: number of delay line stages, or 0 for sample & hold simulatioj
-		:param clock_freq: clock frequency
+		:param num_stages: number of delay line stages, or 0 for zero-order-hold bitcurhser
+		:param clock_freq: clock frequency, <= 1
 		:param ramp_output:
 			If False, will use zero-order hold, for behavior akin to BBD without reconstruction filter. Will alias
 				badly - not just around the clock rate (which may actually be desirable for analog emulation), but also
 				around the operating sample rate (which is undesired).
 			If True, will linearly interpolate output samples, for more tape-like behavior. Also helps limit unwanted
 				aliasing, so also recommended for BBD emulation when using a good external reconstruction filter.
-		:param polyblep: Size of polyblep step to use (ignored if ramp_output). num_stages must be > 0
-		:param linblep: If True, will use linear bandlimited step (ignored if ramp_output or polyblep)
+				Increases delay by 1/2 clock cycle
+		:param polyblep_size: Size of polyblep step to use (ignored if ramp_output). num_stages must be > 0
+		:param linblep: If True, will use linear bandlimited step (ignored if ramp_output or polyblep_size)
 		"""
 
-		if polyblep and not num_stages:
-			raise ValueError('Must set nonzero num_stages if using polyblep')
+		# TODO: could handle this case - but would have to add a delay of (polyblep_size/2) samples
+		if polyblep_size and not num_stages:
+			raise ValueError('Must set nonzero num_stages if using polyblep_size')
+
+		self.clock_freq = None
 
 		self.num_stages = num_stages
-		self.clock_freq = clock_freq
 		self.ramp_output = ramp_output
-		self.half_polyblep_size = 0.5 * polyblep if polyblep else None
+		self.half_polyblep_size = 0.5 * polyblep_size if polyblep_size else None
 		self.linblep = linblep
 
-		self.clock_phase = 0.0
-		self.x_prev = 0.0
-		self.y_prev = 0.0
-		self.y_curr = 0.0
+		self.clock_phase = None
+		self.x_prev = None
+		self.y_prev = None
+		self.y_curr = None
 		self.delay_line = DelayLine(num_stages) if self.num_stages > 0 else None
+
+		self.set_clock_freq(clock_freq)
+		self.reset()
 
 	def set_clock_freq(self, clock_freq: float):
 		# TODO: handle this case better (it will alias, but could still at least attempt to handle it)
-		if clock_freq >= 1.0:
+		if clock_freq > 1.0:
 			raise ValueError('Clock rate too high!')
 		self.clock_freq = clock_freq
 
 	def reset(self) -> None:
 		self.clock_phase = 0.0
 		self.x_prev = 0.0
+		self.y_prev = 0.0
 		self.y_curr = 0.0
-		self.delay_line.reset()
+
+		if self.delay_line is not None:
+			self.delay_line.reset()
 
 	def get_state(self):
 		return (
@@ -120,16 +133,17 @@ class VariableRateDelayLine(ProcessorBase):
 
 		x_interp_t = None
 
-		if clock_phase_1 >= 1.0:
+		if clock_phase_1 >= 2.0:
+			# Shouldn't be possible due to clock_freq < 1 check above (TODO: handle this case)
+			raise AssertionError
 
-			assert clock_phase_1 < 2.0
+		elif clock_phase_1 >= 1.0:
 
 			x_interp_t = reverse_lerp((clock_phase_0, clock_phase_1), 1.0)
 
 			# TODO: optional higher-order interpolation
 			x_interp_val = lerp((self.x_prev, x), x_interp_t)
 
-			# TODO: Optionally use polyblep to smooth step
 			self.y_prev = self.y_curr
 			if self.delay_line is None:
 				self.y_curr = x_interp_val
@@ -188,8 +202,10 @@ class VariableRateDelayLine(ProcessorBase):
 		return self._process_sample(sample, debug=True)
 
 
-def _interp_clock_phase(clock_phase):
-	# Interpolate clock phase to get precise zero crossing locations
+def _interp_clock_phase(clock_phase: np.ndarray) -> Tuple[List[float], List[float]]:
+	"""
+	Interpolate clock phase to get precise zero crossing locations for plotting
+	"""
 
 	clock_phase_t = []
 	clock_phase_y = []
@@ -223,8 +239,9 @@ def _do_plot(
 		freq=0.0126,
 		clock_freq=0.11,
 		num_samples_plot=128,
-		num_samples=1024,
+		num_samples=4096,
 		plot_clock_phase=False,
+		verbose=False,
 		**kwargs
 		):
 
@@ -246,17 +263,110 @@ def _do_plot(
 	x_interp_t = debug_info['x_interp_t']
 	x_interp_val = debug_info['x_interp_val']
 
-	ramp = ('ramp' in kwargs and kwargs['ramp'])
+	ramp = delay.ramp_output
+	polyblep_size = kwargs['polyblep_size'] if 'polyblep_size' in kwargs else None
+	linblep = kwargs['linblep'] if 'linblep' in kwargs else None
 
-	fig, (ax_t, ax_f) = plt.subplots(2, 1)
-	if num_stages and ramp:
-		fig.suptitle(f'Tape-ish delay ({num_stages} samples), clock rate {clock_freq:g}')
-	elif num_stages:
-		fig.suptitle(f'BBD style delay ({num_stages} stages), clock rate {clock_freq:g}')
-	elif ramp:
-		fig.suptitle(f'Ramp, clock rate {clock_freq:g}')
+	ax_c = None
+	if verbose:
+		fig, (ax_t, ax_f, ax_c) = plt.subplots(3, 1)
 	else:
-		fig.suptitle(f'Zero-order hold, clock rate {clock_freq:g}')
+		fig, (ax_t, ax_f) = plt.subplots(2, 1)
+
+	if num_stages and ramp:
+		title = f'Tape-ish delay ({num_stages} samples)'
+	elif num_stages:
+		title = f'BBD style delay ({num_stages} stages)'
+	elif ramp:
+		title = 'Ramp'
+	else:
+		title = 'Zero-order hold'
+
+	title_short = title
+
+	title += f', clock rate {clock_freq:g}'
+
+	title_extra = ''
+
+	if not ramp:
+		if polyblep_size:
+			title_extra += f', polyblep {polyblep_size}'
+		elif linblep:
+			title_extra += ', linblep'
+
+	title += title_extra
+	title_short += title_extra
+
+	fig.suptitle(title)
+
+	if verbose:
+		if ramp:
+			expected_delay_samples = (num_stages + 1) / clock_freq
+		else:
+			expected_delay_samples = (num_stages + 0.5) / clock_freq
+
+		xa = x[t_offset:]
+		ya = y_reconstructed[t_offset:]
+		xcorr = scipy.signal.correlate(ya, xa)
+		lags = scipy.signal.correlation_lags(len(ya), len(xa))
+
+		find_peak_samples_range = (
+			int(floor(num_stages / clock_freq)),
+			int(floor((num_stages + 1.5) / clock_freq))
+		)
+		
+		find_peak_lag_indices = tuple(index_of(val, lags) for val in find_peak_samples_range)
+
+		peak_idxs, _ = scipy.signal.find_peaks(xcorr[find_peak_lag_indices[0]:find_peak_lag_indices[1]])
+
+		if not peak_idxs:
+			raise AssertionError('Failed to find peaks')
+
+		if len(peak_idxs) > 1:
+			print(len(peak_idxs))
+			print(peak_idxs)
+			# TODO: better handling of multiple peaks case
+			raise AssertionError('Found multiple peaks')
+
+		peak_xcorr_idx = peak_idxs[0] + find_peak_lag_indices[0]
+
+		# Interpolate to find peak in between samples (parabolic, or sine fit)
+		px, peak_xcorr = parabolic_interp_find_peak((xcorr[peak_xcorr_idx - 1], xcorr[peak_xcorr_idx], xcorr[peak_xcorr_idx + 1]))
+
+		actual_delay_samples = scale(px, (-1.0, 1.0), (lags[peak_xcorr_idx - 1], lags[peak_xcorr_idx + 1]))
+
+		expected_delay_clocks = expected_delay_samples * clock_freq
+		actual_delay_clocks = actual_delay_samples * clock_freq
+
+		extra_delay_samples = actual_delay_samples - expected_delay_samples
+
+		print('%-40s %9.2f %9.2f %9.1f %9.1f %9.2f %9.2f %9.2f' % (
+			title_short,
+			clock_freq,
+			1.0 / clock_freq,
+			expected_delay_clocks,
+			expected_delay_samples,
+			actual_delay_clocks,
+			actual_delay_samples,
+			extra_delay_samples
+		))
+
+		assert ax_c is not None
+
+		line, = ax_c.plot(lags, xcorr, label='XCorr(yr, x)')
+		ax_c.plot(actual_delay_samples, peak_xcorr, '.', color=line.get_color(), label='XCorr peak')
+		ax_c.axvline(expected_delay_samples, color='darkgreen', label='Expected delay')
+		ax_c.axvline(1/clock_freq, color='orange', label='1 clock period')
+
+		if expected_delay_samples:
+			ax_c.set_xlim([0, max(2*expected_delay_samples, 2/clock_freq)])
+		else:
+			ax_c.set_xlim([-2/clock_freq, 2/clock_freq])
+
+		ax_c.set_xlabel(r'$\Delta$t (samples)')
+		ax_c.set_ylabel('Cross-Correlation')
+		ax_c.grid()
+		ax_c.legend(loc='lower right')
 
 	ax_f.axvline(freq, label='X frequency')
 	ax_f.axvline(clock_freq, label='Clock', color='orange')
@@ -397,8 +507,6 @@ def _plot_chorus(num_stages=256, freq=0.0126, clock_freq=(0.05, 0.15), chorus_fr
 	ax_f.grid()
 	ax_f.legend()
 
-	pass
-
 
 def get_parser():
 	parser = argparse.ArgumentParser(add_help=False)
@@ -406,15 +514,26 @@ def get_parser():
 	return parser
 
 
-def plot(args):
-	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=False)
-	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=False, linblep=True)
-	_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep=1)
-	_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep=2)
-	_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep=4)
-	_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, ramp_output=False)
-	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=True)
-	_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, ramp_output=True)
+def plot(args, verbose=False):
+
+	if verbose:
+		print()
+		print('%-40s  %18s  %18s  %18s  %8s' % (
+			'', 'Clock'.center(18), 'Expected Delay'.center(18), 'Actual Delay'.center(18), 'Diff'.center(8)
+		))
+		print('%40s %9s %9s %9s %9s %9s %9s %9s' % (
+			'', 'Freq', 'Period', 'Clocks', 'Samples', 'Clocks', 'Samples', 'Samples'
+		))
+		print()
+
+	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=False, verbose=verbose)
+	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=False, linblep=True, verbose=verbose)
+	_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep_size=1, ramp_output=False, verbose=verbose)
+	_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep_size=2, ramp_output=False, verbose=verbose)
+	_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep_size=4, ramp_output=False, verbose=verbose)
+	_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, ramp_output=False, verbose=verbose)
+	_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=True, verbose=verbose)
+	_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, ramp_output=True, verbose=verbose)
 	_plot_clock_rate_step(ramp_output=False)
 	_plot_clock_rate_step(ramp_output=True)
 	_plot_chorus(saw=False)
@@ -423,4 +542,4 @@ def plot(args):
 
 
 def main(args):
-	plot(args)
+	plot(args, verbose=True)

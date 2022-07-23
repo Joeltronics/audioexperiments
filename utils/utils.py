@@ -293,6 +293,23 @@ def _test_log_lerp():
 _unit_tests.append(_test_log_lerp)
 
 
+def parabolic_interp_find_peak(
+		y: Tuple[float, float, float],
+		) -> Tuple[float, float]:
+	"""
+	:param y: y values at x=-1, x=0, and x=1
+	"""
+
+	# https://ccrma.stanford.edu/~jos/sasp/Quadratic_Interpolation_Spectral_Peaks.html
+
+	a, b, c = y
+
+	xp = 0.5 * (a - c) / (a - 2*b + c)
+	yp = b - 0.25*(a - c)*xp
+
+	return xp, yp
+
+
 def maybe_make_integer(val: Union[float, int]):
 	if isinstance(val, float) and val.is_integer():
 		return int(val)
@@ -437,6 +454,15 @@ def _test_shift_in_place():
 
 
 _unit_tests.append(_test_shift_in_place)
+
+
+def index_of(val: Any, iterable: Iterable[Any], exclusive=True) -> Optional[int]:
+	idxs = [idx for idx, item in enumerate(iterable) if item == val]
+	if not idxs:
+		return None
+	if exclusive and len(idxs) > 1:
+		raise ValueError(f"Found '{val}' multiple times")
+	return idxs[0]
 
 
 def derivatives(y: np.ndarray, x: np.ndarray, n_derivs=3, discontinuity_thresh=None):
