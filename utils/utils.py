@@ -293,6 +293,29 @@ def _test_log_lerp():
 _unit_tests.append(_test_log_lerp)
 
 
+def quadratic_coeffs(y_n1: float, y_0: float, y_1: float) -> Tuple[float, float, float]:
+	"""
+	Determine a, b, c for a*(x**2) + b*x + c, given y(-1), y(0), and y(1)
+	"""
+
+	# y(0) = a*0 + b*0 + c = c
+	c = y_0
+
+	"""
+	y(-1) = a * (-1)^2 + b * -1 + c = a - b + c
+	y(1)  = a *   1^2  + b *  1 + c = a + b + c
+
+	y(-1) = a - b + c
+	a = y(-1) + b - c
+
+	y(1) = a + b + c = (y(-1) + b - c) + b + c = y(-1) + 2*b
+	b = (y(1) - y(-1)) / 2
+	"""
+	b = 0.5*(y_1 - y_n1)
+	a = y_n1 + b - c
+	return a, b, c
+
+
 def parabolic_interp_find_peak(
 		y: Tuple[float, float, float],
 		) -> Tuple[float, float]:

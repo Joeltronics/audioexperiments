@@ -16,7 +16,7 @@ from delay_reverb.delay_line import DelayLine
 from generation.signal_generation import gen_sine, gen_saw
 from generation.polyblep import polyblep
 from processor import ProcessorBase
-from utils.utils import lerp, reverse_lerp, scale, to_dB, index_of, parabolic_interp_find_peak
+from utils.utils import lerp, reverse_lerp, scale, to_dB, index_of, parabolic_interp_find_peak, quadratic_coeffs
 
 
 def do_fft(x, n_fft: Optional[int]=None, sample_rate=1.0, window=False):
@@ -53,6 +53,7 @@ class VariableRateDelayLine(ProcessorBase):
 			num_stages: int,
 			clock_freq: float,
 			ramp_output=True,
+			quadratic_ramp=False,
 			polyblep_size: Optional[float]=None,
 			linblep=False,
 			):
@@ -66,6 +67,7 @@ class VariableRateDelayLine(ProcessorBase):
 			If True, will linearly interpolate output samples, for more tape-like behavior. Also helps limit unwanted
 				aliasing, so also recommended for BBD emulation when using a good external reconstruction filter.
 				Increases delay by 1/2 clock relative to step case non-ramp case.
+		:param quadratic_ramp: If using ramp_output, ramp will be quadratic instead of linear if this is set
 		:param polyblep_size: Size of polyblep step to use (ignored if ramp_output); will be clipped to <= 1/clock_freq.
 			If num_stages = 0, adds delay of (polyblep_size/2) samples.
 		:param linblep: If True, will use linear bandlimited step (ignored if ramp_output or polyblep_size)
@@ -80,16 +82,20 @@ class VariableRateDelayLine(ProcessorBase):
 		self.num_stages = num_stages
 
 		self.ramp_output = ramp_output
+		self.quadratic_ramp = quadratic_ramp and ramp_output
 		self.half_polyblep_size = 0.5 * polyblep_size if (polyblep_size and not ramp_output) else None
 		self.linblep = linblep and not (polyblep_size or ramp_output)
 		self.naive = not (ramp_output or polyblep_size or linblep)
 
-		assert(sum([bool(val) for val in [self.naive, self.ramp_output, self.half_polyblep_size, self.linblep]]) == 1)
+		assert(1 == sum([bool(val) for val in [
+			self.naive, self.ramp_output, self.half_polyblep_size, self.linblep
+		]]))
 
+		self.quadratic_coeffs = None
 		self.clock_phase = None
-		self.x_prev = None
-		self.y_prev = None
-		self.y_curr = None
+		self.x1 = None
+		self.y1 = None
+		self.y0 = None
 		self.delay_line = DelayLine(num_stages) if self.num_stages > 0 else None
 
 		self.set_clock_freq(clock_freq)
@@ -113,6 +119,8 @@ class VariableRateDelayLine(ProcessorBase):
 				title += ', linblep'
 			else:
 				title += ', naive step'
+		elif self.quadratic_ramp:
+			title += ', quadratic'
 
 		return title
 
@@ -121,9 +129,12 @@ class VariableRateDelayLine(ProcessorBase):
 
 	def reset(self) -> None:
 		self.clock_phase = 0.0
-		self.x_prev = 0.0
-		self.y_prev = 0.0
-		self.y_curr = 0.0
+		self.x1 = 0.0
+		self.y1 = 0.0
+		self.y0 = 0.0
+
+		if self.quadratic_ramp:
+			self.quadratic_coeffs = (0.0, 0.0, 0.0)
 
 		if self.delay_line is not None:
 			self.delay_line.reset()
@@ -131,14 +142,15 @@ class VariableRateDelayLine(ProcessorBase):
 	def get_state(self):
 		return (
 			self.clock_phase,
-			self.x_prev,
-			self.y_prev,
-			self.y_curr,
+			self.x1,
+			self.y1,
+			self.y0,
+			self.quadratic_coeffs,
 			(self.delay_line.get_state() if self.delay_line is not None else None),
 		)
 
 	def set_state(self, state):
-		self.clock_phase, self.x_prev, self.y_prev, self.y_curr, delay_line_state = state
+		self.clock_phase, self.x1, self.y1, self.y0, self.quadratic_coeffs, delay_line_state = state
 		if self.delay_line is not None:
 			self.delay_line.set_state(delay_line_state)
 
@@ -173,17 +185,21 @@ class VariableRateDelayLine(ProcessorBase):
 				
 				x_interp_t = reverse_lerp((clock_phase_0, clock_phase_1_unwrapped), float(zero_crossing))
 				# TODO: optional higher-order interpolation
-				x_interp_val = lerp((self.x_prev, x), x_interp_t)
+				x_interp_val = lerp((self.x1, x), x_interp_t)
 
-				y += self.y_prev * (x_interp_t - x_interp_t_prev)
+				y += self.y1 * (x_interp_t - x_interp_t_prev)
 
-				self.y_prev = self.y_curr
+				y2 = self.y1
+				self.y1 = self.y0
 				if self.delay_line is None:
-					self.y_curr = x_interp_val
+					self.y0 = x_interp_val
 				else:
-					self.y_curr = self.delay_line.peek_front()
+					self.y0 = self.delay_line.peek_front()
 					self.delay_line.push_back(x_interp_val)
-				
+
+				if self.quadratic_ramp:
+					self.quadratic_coeffs = quadratic_coeffs(y2, self.y1, self.y0)
+
 				if zero_crossing == 1 and debug_info is not None:
 					# Give debug info for 1st zero crossing only
 					debug_info['x_interp_t'] = x_interp_t
@@ -192,7 +208,7 @@ class VariableRateDelayLine(ProcessorBase):
 				x_interp_t_prev = x_interp_t
 				zero_crossing += 1
 
-			y += self.y_curr * (1.0 - x_interp_t_prev)
+			y += self.y0 * (1.0 - x_interp_t_prev)
 
 			if debug_info is not None:
 				debug_info['num_zero_crossings'] = (zero_crossing - 1)
@@ -202,14 +218,18 @@ class VariableRateDelayLine(ProcessorBase):
 			x_interp_t = reverse_lerp((clock_phase_0, clock_phase_1_unwrapped), 1.0)
 
 			# TODO: optional higher-order interpolation
-			x_interp_val = lerp((self.x_prev, x), x_interp_t)
+			x_interp_val = lerp((self.x1, x), x_interp_t)
 
-			self.y_prev = self.y_curr
+			y2 = self.y1
+			self.y1 = self.y0
 			if self.delay_line is None:
-				self.y_curr = x_interp_val
+				self.y0 = x_interp_val
 			else:
-				self.y_curr = self.delay_line.peek_front()
+				self.y0 = self.delay_line.peek_front()
 				self.delay_line.push_back(x_interp_val)
+
+			if self.quadratic_ramp:
+				self.quadratic_coeffs = quadratic_coeffs(y2, self.y1, self.y0)
 
 			if self.linblep:
 				"""
@@ -217,7 +237,7 @@ class VariableRateDelayLine(ProcessorBase):
 				* If x_interp_t near 0, transition was near last sample, so we want to be mostly the new sample
 				* If x_interp_t near 1, transition was near current sample, so we want to be mostly the previous
 				"""
-				y = lerp((self.y_curr, self.y_prev), x_interp_t)
+				y = lerp((self.y0, self.y1), x_interp_t)
 
 			if debug_info is not None:
 				debug_info['x_interp_t'] = x_interp_t
@@ -225,13 +245,18 @@ class VariableRateDelayLine(ProcessorBase):
 				debug_info['num_zero_crossings'] = 1
 
 		if self.naive:
-			y = self.y_curr
+			y = self.y0
 
 		elif y is not None:
 			pass
 
+		elif self.quadratic_ramp:
+			assert self.quadratic_coeffs is not None
+			a, b, c = self.quadratic_coeffs
+			y = a * (clock_phase_1_wrapped ** 2) + b * clock_phase_1_wrapped + c
+
 		elif self.ramp_output:
-			y = lerp((self.y_prev, self.y_curr), clock_phase_1_wrapped)
+			y = lerp((self.y1, self.y0), clock_phase_1_wrapped)
 
 		elif self.half_polyblep_size:
 			p_freq = self.clock_freq * self.half_polyblep_size
@@ -242,29 +267,29 @@ class VariableRateDelayLine(ProcessorBase):
 					# Right before edge
 					p_idx = scale(clock_phase_1_wrapped, (1.0 - p_freq, 1.0), (-1.0, 0.0))
 					p = polyblep(p_idx)
-					y = lerp((self.y_curr, self.delay_line.peek_front()), p)
+					y = lerp((self.y0, self.delay_line.peek_front()), p)
 				elif clock_phase_1_wrapped < p_freq:
 					# Right after edge
 					p_idx = scale(clock_phase_1_wrapped, (0.0, p_freq), (0.0, 1.0))
 					p = polyblep(p_idx)
-					y = lerp((self.y_prev, self.y_curr), p)
+					y = lerp((self.y1, self.y0), p)
 				else:
-					y = self.y_curr
+					y = self.y0
 			else:
 				if clock_phase_1_wrapped < 2.0 * p_freq:
 					# Transition
 					p_idx = scale(clock_phase_1_wrapped, (0.0, 2.0*p_freq), (-1.0, 1.0))
 					p = polyblep(p_idx)
-					y = lerp((self.y_prev, self.y_curr), p)
+					y = lerp((self.y1, self.y0), p)
 				else:
 					# Not a transition
-					y = self.y_curr
+					y = self.y0
 
 		else:
-			y = self.y_curr
+			y = self.y0
 
 		self.clock_phase = clock_phase_1_wrapped
-		self.x_prev = x
+		self.x1 = x
 
 		if debug_info is not None:
 			# TODO: make this unwrapped (will cause problems in some debug graphs though; make them handle this)
@@ -413,22 +438,14 @@ def _do_plot(
 
 	find_peak_lag_indices = [index_of(val, lags) for val in find_peak_samples_range]
 
-	#peak_idxs, _ = scipy.signal.find_peaks(xcorr[find_peak_lag_indices[0]:find_peak_lag_indices[1]])
 	peak_idxs, _ = scipy.signal.find_peaks(xcorr[find_peak_lag_indices[0]:])
 
 	if len(peak_idxs) == 0:
-		#return
 		raise AssertionError(f'Failed to find peaks in range {find_peak_lag_indices[0]}:{len(find_peak_lag_indices)}')
-
-	#if len(peak_idxs) > 1:
-	#	print(len(peak_idxs))
-	#	print(peak_idxs)
-	#	# TODO: better handling of multiple peaks case
-	#	raise AssertionError('Found multiple peaks')
 
 	peak_xcorr_idx = peak_idxs[0] + find_peak_lag_indices[0]
 
-	# Interpolate to find peak in between samples (parabolic, or sine fit)
+	# Interpolate to find peak in between samples (parabolic - TODO: try sine fit)
 	px, peak_xcorr = parabolic_interp_find_peak((xcorr[peak_xcorr_idx - 1], xcorr[peak_xcorr_idx], xcorr[peak_xcorr_idx + 1]))
 
 	actual_delay_samples = scale(px, (-1.0, 1.0), (lags[peak_xcorr_idx - 1], lags[peak_xcorr_idx + 1]))
@@ -637,25 +654,25 @@ def get_parser():
 	
 	parser.add_argument('--clock', action='store_true', dest='plot_clock_phase', help='Add clock phase to plot')
 
-	parser.add_argument('--basic', action='store_true', dest='basic', help='Plot basic examples (automatically set if no other plot args given)')
+	parser.add_argument('--basic', action='store_true', help='Plot basic examples (automatically set if no other plot args given)')
+	parser.add_argument('--quadratic', action='store_true', help='Plot quadratic vs linear interpolation')
 	parser.add_argument('--fast', action='store_true', dest='fast_clock', help='Plot high clock rates')
 	parser.add_argument('--step', action='store_true', dest='clock_step', help='Plot clock rate step')
 	parser.add_argument('--ramp', action='store_true', dest='clock_ramp', help='Plot clock rate ramp')
-	parser.add_argument('--chorus', action='store_true', dest='chorus', help='Plot chorus')
+	parser.add_argument('--chorus', action='store_true', help='Plot chorus')
 
 	return parser
 
 
 def plot(args, verbose=False):
 
-	if not any([args.fast_clock, args.clock_step, args.clock_ramp, args.chorus]):
+	if not any([args.fast_clock, args.clock_step, args.clock_ramp, args.chorus, args.quadratic]):
 		args.basic = True
 
-	if verbose and (args.basic or args.fast_clock):
+	if verbose and any([args.basic, args.quadratic, args.fast_clock]):
 
 		print()
-		print('%-60s %6s %18s  %18s  %18s  %8s' % (
-			'', '', 'Clock'.center(18), 'Expected Delay'.center(18), 'Actual Delay'.center(18), 'Diff'.center(8)
+		print('%-60s %6s %18s  %18s  %18s  %8s' % (			'', '', 'Clock'.center(18), 'Expected Delay'.center(18), 'Actual Delay'.center(18), 'Diff'.center(8)
 		))
 		print('%60s %6s %9s %9s %9s %9s %9s %9s %9s' % (
 			'', 'Stages', 'Freq', 'Period', 'Clocks', 'Samples', 'Clocks', 'Samples', 'Samples'
@@ -663,7 +680,6 @@ def plot(args, verbose=False):
 		print()
 
 	if args.basic:
-
 		_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=False, verbose=verbose)
 		_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=False, linblep=True, verbose=verbose)
 		_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, polyblep_size=1, ramp_output=False, verbose=verbose)
@@ -671,27 +687,34 @@ def plot(args, verbose=False):
 		_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, polyblep_size=4, ramp_output=False, verbose=verbose)
 		_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, polyblep_size=8, ramp_output=False, verbose=verbose)
 		_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, polyblep_size=16, ramp_output=False, verbose=verbose)
+	if args.basic or args.quadratic:
 		_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=True, verbose=verbose)
-
+		_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, quadratic_ramp=True, verbose=verbose)
+	if args.basic:
 		_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep_size=1, ramp_output=False, verbose=verbose)
 		_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep_size=2, ramp_output=False, verbose=verbose)
 		_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep_size=4, ramp_output=False, verbose=verbose)
 		_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep_size=8, ramp_output=False, verbose=verbose)
 		_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep_size=16, ramp_output=False, verbose=verbose)
-		
 		_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, ramp_output=False, verbose=verbose)
+	if args.basic or args.quadratic:
 		_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, ramp_output=True, verbose=verbose)
+		_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, quadratic_ramp=True, verbose=verbose)
 
-	if args.fast_clock:
-		for clock_freq in [0.91, 1.21, 2.3]:
-
+	for clock_freq in [0.91, 1.21, 2.3]:
+		if args.fast_clock:
 			_do_plot(num_stages=0, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=False, verbose=verbose)
 			_do_plot(num_stages=0, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=False, linblep=True, verbose=verbose)
+		if args.fast_clock or args.quadratic:
 			_do_plot(num_stages=0, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=True, verbose=verbose)
+			_do_plot(num_stages=0, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=True, quadratic_ramp=True, verbose=verbose)
 
+		if args.fast_clock:
 			_do_plot(num_stages=16, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=False, verbose=verbose)
 			_do_plot(num_stages=16, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=False, linblep=True, verbose=verbose)
+		if args.fast_clock or args.quadratic:
 			_do_plot(num_stages=16, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=True, verbose=verbose)
+			_do_plot(num_stages=16, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=True, quadratic_ramp=True, verbose=verbose)
 
 	if args.clock_step:
 		_plot_clock_rate_step(ramp_output=False)
