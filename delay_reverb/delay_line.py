@@ -56,14 +56,14 @@ class DelayLine(ProcessorBase):
 			raise IndexError('Minimum delay time is 1 sample')
 
 	def process_sample(self, x: float):
-		y = self.__getitem__(self.delay_samples)
+		y = self.peek_front()
 		self.push_back(x)
 		return y
 
 	# TODO: efficient process_vector
 
-	def peek_front(self):
-		return self.__getitem__(self.delay_samples)
+	def peek_front(self, num_samples_from_front: int = 0):
+		return self.__getitem__(self.delay_samples - num_samples_from_front)
 
 	def push_back(self, x: float):
 		self.delay_line[self.write_idx] = x
@@ -82,7 +82,7 @@ class DelayLine(ProcessorBase):
 			raise IndexError('Minimum index is 1')
 
 		if isinstance(index, int):
-			idx = (self.write_idx + index) % self.max_delay_samples
+			idx = (self.write_idx - index) % self.max_delay_samples
 			return self.delay_line[idx]
 
 		elif isinstance(index, float):
@@ -90,7 +90,7 @@ class DelayLine(ProcessorBase):
 			idx_remainder = index - idx_base
 			lerp_idx = 1.0 - idx_remainder
 
-			idx0 = (self.write_idx + idx_base + 1) % self.max_delay_samples
+			idx0 = (self.write_idx - idx_base - 1) % self.max_delay_samples
 			idx1 = (idx0 + 1) % self.max_delay_samples
 
 			return utils.lerp((self.delay_line[idx0], self.delay_line[idx1]), lerp_idx)
@@ -280,26 +280,112 @@ class FIRDelayLine(ProcessorBase):
 		self.delay_line, self.write_idx = state
 
 
-def _delay_line_behavior_test(delay_len=123):
+def _delay_line_simple_behavior_test():
+	dl = DelayLine(4)
+	x = [1, -3, 6, 2, -5, 7]
+	y = dl.process_vector(x)
+
+	y_expected = np.array([0, 0, 0, 0, 1, -3])
+
+	if not approx_equal_vector(y_expected, y):
+		unit_test.plot_equal_failure(expected=y_expected, actual=y)
+		raise unit_test.UnitTestFailure('Basic DelayLine behavior')
+
+	unit_test.test_equal(dl[1], 7)
+	unit_test.test_equal(dl[2], -5)
+	unit_test.test_equal(dl[3], 2)
+	unit_test.test_equal(dl[4], 6)
+
+	unit_test.test_equal(dl.peek_front(), 6)
+	unit_test.test_equal(dl.peek_front(0), 6)
+	unit_test.test_equal(dl.peek_front(1), 2)
+	unit_test.test_equal(dl.peek_front(2), -5)
+	unit_test.test_equal(dl.peek_front(3), 7)
+
+	unit_test.test_equal(       dl[1.0],   7)
+	unit_test.test_approx_equal(dl[1.25],  4)
+	unit_test.test_approx_equal(dl[1.5],   1)
+	unit_test.test_approx_equal(dl[1.75], -2)
+	unit_test.test_equal(       dl[2.0],  -5)
+	unit_test.test_approx_equal(dl[2.5],  -1.5)
+	unit_test.test_equal(       dl[3.0],   2)
+	unit_test.test_approx_equal(dl[3.5],   4)
+	unit_test.test_equal(       dl[4.0],   6)
+
+	# TODO: test push_back
+
+	# Now the same but with odd length
+
+	dl = DelayLine(3)
+	x = [1, -3, 6, 2, -5, 7]
+	y = dl.process_vector(x)
+
+	y_expected = np.array([0, 0, 0, 1, -3, 6])
+
+	if not approx_equal_vector(y_expected, y):
+		unit_test.plot_equal_failure(expected=y_expected, actual=y)
+		raise unit_test.UnitTestFailure('Basic DelayLine behavior')
+
+	unit_test.test_equal(dl[1], 7)
+	unit_test.test_equal(dl[2], -5)
+	unit_test.test_equal(dl[3], 2)
+
+	unit_test.test_equal(dl.peek_front(), 2)
+	unit_test.test_equal(dl.peek_front(0), 2)
+	unit_test.test_equal(dl.peek_front(1), -5)
+	unit_test.test_equal(dl.peek_front(2), 7)
+
+	unit_test.test_equal(       dl[1.0],   7)
+	unit_test.test_approx_equal(dl[1.25],  4)
+	unit_test.test_approx_equal(dl[1.5],   1)
+	unit_test.test_approx_equal(dl[1.75], -2)
+	unit_test.test_equal(       dl[2.0],  -5)
+	unit_test.test_approx_equal(dl[2.5],  -1.5)
+	unit_test.test_equal(       dl[3.0],   2)
+
+
+
+def _delay_line_audio_behavior_test():
+
+	delay_len=123
 	sample_rate = 48000.
 	n_samp = 1024
+	x = gen_freq_sweep_sine(20./sample_rate, 20000./sample_rate, n_samp)
+
+	y_expected = np.concatenate((np.zeros(delay_len), x[:n_samp - delay_len]))
 
 	dl = DelayLine(delay_len)
-
-	x = gen_freq_sweep_sine(20./sample_rate, 20000./sample_rate, n_samp)
 	y = dl.process_vector(x)
-	y_expected = np.concatenate((np.zeros(delay_len), x[:n_samp-delay_len]))
+	
 	assert len(y) == len(y_expected)
 
 	if not approx_equal_vector(y_expected, y):
 		unit_test.plot_equal_failure(expected=y_expected, actual=y)
 		raise unit_test.UnitTestFailure('Basic DelayLine behavior')
 
-	front = dl.peek_front()
+	unit_test.test_approx_equal(dl[1], x[-1])
+	unit_test.test_approx_equal(dl[2], x[-2])
+	unit_test.test_approx_equal(dl[3], x[-3])
+	unit_test.test_approx_equal(dl[10], x[-10])
+	unit_test.test_approx_equal(dl[50], x[-50])
+	unit_test.test_approx_equal(dl[120], x[-120])
+	unit_test.test_approx_equal(dl[121], x[-121])
+	unit_test.test_approx_equal(dl[122], x[-122])
+	unit_test.test_approx_equal(dl[123], x[-123])
 
-	unit_test.test_approx_equal(front, x[-delay_len])
-	unit_test.test_approx_equal(front, dl[delay_len])
-	unit_test.test_approx_equal(front, float(dl[delay_len]))
+	unit_test.test_approx_equal(dl.peek_front(), x[-delay_len])
+	unit_test.test_approx_equal(dl.peek_front(), dl[delay_len])
+	unit_test.test_approx_equal(dl.peek_front(), dl[float(delay_len)])
+
+	unit_test.test_approx_equal(dl.peek_front(1), x[-delay_len + 1])
+	unit_test.test_approx_equal(dl.peek_front(1), dl[delay_len - 1])
+	unit_test.test_approx_equal(dl.peek_front(1), dl[float(delay_len - 1)])
+
+	unit_test.test_approx_equal(dl.peek_front(10), x[-delay_len + 10])
+	unit_test.test_approx_equal(dl.peek_front(10), dl[delay_len - 10])
+
+	unit_test.test_approx_equal(dl.peek_front(50), dl[delay_len - 50])
+	unit_test.test_approx_equal(dl.peek_front(50), dl[float(delay_len - 50)])
 
 	expected_1st = x[-delay_len]
 	expected_2nd = x[-delay_len + 1]
@@ -307,8 +393,6 @@ def _delay_line_behavior_test(delay_len=123):
 	unit_test.test_approx_equal(0.5*(expected_1st + expected_2nd), dl[delay_len - 0.5])
 	unit_test.test_approx_equal(0.75*expected_1st + 0.25*expected_2nd, dl[delay_len - 0.25])
 
-	# TODO: test operator [] at other positions (1, and somewhere in middle)
-	# TODO: test push_back
 	# TODO: test FractionalAllpassDelayLine
 	# TODO: test FIRDelayLine
 
@@ -323,7 +407,8 @@ def test(verbose=False):
 		processor_unit_test.ProcessorUnitTest(
 			"Single sample FractionalAllpassDelayLine ProcessorBase behavior",
 			lambda: FractionalAllpassDelayLine(1)),
-		_delay_line_behavior_test,
+		_delay_line_simple_behavior_test,
+		_delay_line_audio_behavior_test,
 	], verbose=verbose)
 
 
