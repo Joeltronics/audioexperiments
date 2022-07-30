@@ -69,13 +69,15 @@ class VariableRateDelayLine(ProcessorBase):
 				Increases delay by 1/2 clock relative to step case non-ramp case.
 		:param quadratic_ramp: If using ramp_output, ramp will be quadratic instead of linear if this is set
 		:param polyblep_size: Size of polyblep step to use (ignored if ramp_output); will be clipped to <= 1/clock_freq.
-			If num_stages = 0, adds delay of (polyblep_size/2) samples.
+			If num_stages = 0, adds delay of min(polyblep_size/2, 0.5/clock_freq) samples.
 		:param linblep: If True, will use linear bandlimited step (ignored if ramp_output or polyblep_size)
 
 		:note:
 			Average delay without ramp is ((num_stages + 0.5) / clock_freq) samples
 			Average delay with ramp is ((num_stages + 1) / clock_freq) samples
 		"""
+
+		# TODO: for behavior closer to real life, reduce delay by 1 clock, both with or without ramp (unless num_stages 0)
 
 		self.clock_freq = None
 
@@ -86,6 +88,8 @@ class VariableRateDelayLine(ProcessorBase):
 		self.half_polyblep_size = 0.5 * polyblep_size if (polyblep_size and not ramp_output) else None
 		self.linblep = linblep and not (polyblep_size or ramp_output)
 		self.naive = not (ramp_output or polyblep_size or linblep)
+
+		self.zero_delay_polyblep = self.half_polyblep_size and self.num_stages > 0
 
 		assert(1 == sum([bool(val) for val in [
 			self.naive, self.ramp_output, self.half_polyblep_size, self.linblep
@@ -103,9 +107,9 @@ class VariableRateDelayLine(ProcessorBase):
 
 	def get_name(self) -> str:
 
-		if self.num_stages and self.ramp_output:
+		if self.num_stages > 0 and self.ramp_output:
 			title = f'Tape-ish delay ({self.num_stages} stages)'
-		elif self.num_stages:
+		elif self.num_stages > 0:
 			title = f'BBD style delay ({self.num_stages} stages)'
 		elif self.ramp_output:
 			title = 'Ramp downsampler'
@@ -262,7 +266,8 @@ class VariableRateDelayLine(ProcessorBase):
 			p_freq = self.clock_freq * self.half_polyblep_size
 			# There are problems if polyblep size is too large for clock freq, so limit max p_freq to 0.5
 			p_freq = min(p_freq, 0.5)
-			if self.delay_line is not None:
+
+			if self.zero_delay_polyblep:
 				if clock_phase_1_wrapped > 1.0 - p_freq:
 					# Right before edge
 					p_idx = scale(clock_phase_1_wrapped, (1.0 - p_freq, 1.0), (-1.0, 0.0))
@@ -656,6 +661,7 @@ def get_parser():
 
 	parser.add_argument('--basic', action='store_true', help='Plot basic examples (automatically set if no other plot args given)')
 	parser.add_argument('--quadratic', action='store_true', help='Plot quadratic vs linear interpolation')
+	parser.add_argument('--polyblep', action='store_true', help='Plot polybleps')
 	parser.add_argument('--fast', action='store_true', dest='fast_clock', help='Plot high clock rates')
 	parser.add_argument('--step', action='store_true', dest='clock_step', help='Plot clock rate step')
 	parser.add_argument('--ramp', action='store_true', dest='clock_ramp', help='Plot clock rate ramp')
@@ -666,10 +672,10 @@ def get_parser():
 
 def plot(args, verbose=False):
 
-	if not any([args.fast_clock, args.clock_step, args.clock_ramp, args.chorus, args.quadratic]):
+	if not any([args.fast_clock, args.clock_step, args.clock_ramp, args.chorus, args.quadratic, args.polyblep]):
 		args.basic = True
 
-	if verbose and any([args.basic, args.quadratic, args.fast_clock]):
+	if verbose and any([args.basic, args.quadratic, args.fast_clock, args.polyblep]):
 
 		print()
 		print('%-60s %6s %18s  %18s  %18s  %8s' % (			'', '', 'Clock'.center(18), 'Expected Delay'.center(18), 'Actual Delay'.center(18), 'Diff'.center(8)
@@ -679,7 +685,7 @@ def plot(args, verbose=False):
 		))
 		print()
 
-	if args.basic:
+	if args.basic or args.polyblep:
 		_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=False, verbose=verbose)
 		_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=False, linblep=True, verbose=verbose)
 		_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, polyblep_size=1, ramp_output=False, verbose=verbose)
@@ -690,31 +696,29 @@ def plot(args, verbose=False):
 	if args.basic or args.quadratic:
 		_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, ramp_output=True, verbose=verbose)
 		_do_plot(num_stages=0, plot_clock_phase=args.plot_clock_phase, quadratic_ramp=True, verbose=verbose)
-	if args.basic:
+	if args.basic or args.polyblep:
 		_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep_size=1, ramp_output=False, verbose=verbose)
 		_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep_size=2, ramp_output=False, verbose=verbose)
 		_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep_size=4, ramp_output=False, verbose=verbose)
 		_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep_size=8, ramp_output=False, verbose=verbose)
 		_do_plot(num_stages=1, plot_clock_phase=args.plot_clock_phase, polyblep_size=16, ramp_output=False, verbose=verbose)
+	if args.basic:
 		_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, ramp_output=False, verbose=verbose)
 	if args.basic or args.quadratic:
 		_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, ramp_output=True, verbose=verbose)
 		_do_plot(num_stages=16, plot_clock_phase=args.plot_clock_phase, quadratic_ramp=True, verbose=verbose)
 
 	for clock_freq in [0.91, 1.21, 2.3]:
-		if args.fast_clock:
-			_do_plot(num_stages=0, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=False, verbose=verbose)
-			_do_plot(num_stages=0, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=False, linblep=True, verbose=verbose)
-		if args.fast_clock or args.quadratic:
-			_do_plot(num_stages=0, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=True, verbose=verbose)
-			_do_plot(num_stages=0, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=True, quadratic_ramp=True, verbose=verbose)
-
-		if args.fast_clock:
-			_do_plot(num_stages=16, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=False, verbose=verbose)
-			_do_plot(num_stages=16, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=False, linblep=True, verbose=verbose)
-		if args.fast_clock or args.quadratic:
-			_do_plot(num_stages=16, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=True, verbose=verbose)
-			_do_plot(num_stages=16, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=True, quadratic_ramp=True, verbose=verbose)
+		for num_stages in [0, 16]:
+			if args.fast_clock or args.polyblep:
+				_do_plot(num_stages=num_stages, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=False, verbose=verbose)
+			if args.fast_clock:
+				_do_plot(num_stages=num_stages, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=False, linblep=True, verbose=verbose)
+			if args.fast_clock or args.quadratic:
+				_do_plot(num_stages=num_stages, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=True, verbose=verbose)
+				_do_plot(num_stages=num_stages, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, ramp_output=True, quadratic_ramp=True, verbose=verbose)
+			if args.polyblep:
+				_do_plot(num_stages=num_stages, clock_freq=clock_freq, plot_clock_phase=args.plot_clock_phase, polyblep_size=8, ramp_output=False, verbose=verbose)
 
 	if args.clock_step:
 		_plot_clock_rate_step(ramp_output=False)
