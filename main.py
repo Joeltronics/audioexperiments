@@ -32,6 +32,7 @@ MODULES = [
 	'filters.one_pole',
 	'filters.peak_filters',
 	'filters.pink',
+	'filters.topologies',
 	'filters.zdf.cascade',
 	'filters.zdf.lm13700',
 	'filters.zdf.onepole',
