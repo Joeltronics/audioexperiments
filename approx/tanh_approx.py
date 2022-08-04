@@ -2,7 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import math
-import scipy.misc
+import scipy.special
 import struct
 
 # http://math.stackexchange.com/questions/107292/rapid-approximation-of-tanhx
@@ -47,7 +47,7 @@ def tanhApproxTypePun(x):
 	
 
 def nCr(n, r):
-	return scipy.misc.comb(n, r)
+	return scipy.special.comb(n, r)
 
 def tanhApproxContinuedFraction5(x):
 	# 2 multiply
