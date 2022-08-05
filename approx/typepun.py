@@ -8,6 +8,8 @@ from typing import Callable, Tuple
 import numpy as np
 from matplotlib import pyplot as plt
 
+from utils.utils import to_dB, from_dB
+
 
 exp = np.exp
 ln = np.log
@@ -23,6 +25,7 @@ def inv_sqrt(x):
 
 
 LOG2_E = log2(math.e)
+LOG2_10 = log2(10.0)
 
 
 def pun_float_to_int(x: float) -> int:
@@ -100,6 +103,25 @@ def exp_approx(x, c1=0x3f800000, c2=0x00800000):
 	#y = y - y*ln_approx(y) + x*y
 
 	return y
+
+
+@np.vectorize
+def to_dB_approx(x, c1=0x3f800000, c2=0x00800000):
+	def log10_approx(x):
+		y = float(pun_float_to_int(x) - c1) / (c2 * LOG2_10)
+		return y
+
+	return 20.0 * log10_approx(x)
+
+
+@np.vectorize
+def from_dB_approx(x, c1=0x3f800000, c2=0x00800000):
+	def exp10_approx(x):
+		y_int = int(x*c2*LOG2_10 + c1)
+		y = pun_int_to_float(y_int)
+		return y
+
+	return exp10_approx(x / 20.0)
 
 
 @np.vectorize
@@ -190,6 +212,8 @@ def plot_func(
 		title='',
 		ax_plot=None,
 		ax_deriv=None,
+		ax_err=None,
+		rel_err=False,
 		num_points=5000):
 
 	if not title:
@@ -215,6 +239,16 @@ def plot_func(
 		ax_deriv.plot(x, dy_approx, label='Approximation')
 		ax_deriv.grid()
 		ax_deriv.set_title('d/dx %s' % title)
+
+	if ax_err is not None:
+		if rel_err:
+			err = np.abs((y_approx - y_exact) / y_exact)
+		else:
+			err = np.abs(y_approx - y_exact)
+
+		ax_err.plot(x, err, 'r')
+		ax_err.set_ylabel('rel error' if rel_err else 'abs error')
+		ax_err.grid()
 
 
 def sweep_1d(x, f_exact, f_approx, f_err) -> Tuple[np.ndarray, int, int, float]:
@@ -390,7 +424,6 @@ def optimize():
 		fig, (ax1, ax2) = plt.subplots(2, 1)
 		fig.suptitle('tanh')
 
-
 		y_exact = tanh(x)
 		y_approx = tanh_approx(x, c1_min_tanh_err, c2_min_tanh_err)
 		err = y_approx - y_exact
@@ -426,6 +459,10 @@ def plot(args):
 	fig, (ax_ln_exp, ax_exp_ln) = plt.subplots(2, 1)
 	plot_func(np.zeros_like, lambda x: ln_approx(exp_approx(x)) - x, (-5, 5), 'ln(exp(x))', ax_plot=ax_ln_exp)
 	plot_func(np.zeros_like, lambda x: exp_approx(ln_approx(x)) - x, (0.01, 20), 'exp(ln(x))', ax_plot=ax_exp_ln)
+
+	fig, ((ax_plot1, ax_plot2), (ax_err1, ax_err2)) = plt.subplots(2, 2, sharex='col')
+	plot_func(lambda x: x, lambda x: to_dB_approx(from_dB(x)), (-144, 48), 'to_dB', ax_plot=ax_plot1, ax_err=ax_err1)
+	plot_func(lambda x: x, lambda x: from_dB_approx(to_dB(x)), (from_dB(-144), from_dB(48)), 'from_dB', ax_plot=ax_plot2, ax_err=ax_err2, rel_err=True)
 
 	plt.show()
 
