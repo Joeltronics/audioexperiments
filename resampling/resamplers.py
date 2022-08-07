@@ -5,12 +5,17 @@ Testing various resampling algorithms
 Just a basic experiment, not really very high quality
 """
 
-
-import numpy as np
 from typing import Union, Optional, Iterable, List
+
+from matplotlib import pyplot as plt
+import numpy as np
+
 from filters.iir_filters import IIRFilter, ButterworthLowpass
 from filters.filter_base import FilterBase
 from filters.allpass import FractionalDelayAllpass
+from generation.signal_generation import gen_sine, gen_freq_sweep_sine, sample_time_index
+from utils.plot_utils import plot_fft
+from utils import plot_utils, utils
 
 
 class UpsamplerBase:
@@ -374,8 +379,6 @@ class ButterworthDownsampler(FilterDownsampler):
 
 
 def _plot_time_domain_sweep(n_samp, ratio):
-	from matplotlib import pyplot as plt
-	from generation.signal_generation import gen_freq_sweep_sine, sample_time_index
 
 	sr = 48000
 	sr_down = sr // ratio
@@ -396,20 +399,16 @@ def _plot_time_domain_sweep(n_samp, ratio):
 	t_down = sample_time_index(n_samp_down, sr_down)
 	t_up = sample_time_index(n_samp_up, sr_up)
 
-	plt.figure()
+	fig = plt.figure()
+	fig.suptitle('Sine sweep IIR resampling, ratio %i' % ratio)
 	plt.plot(t_up, y_up, '.-', label='Upsampled')
 	plt.plot(t, x, '.-', label='Original')
 	plt.plot(t_down, y_down, '.-', label='Downsampled')
 	plt.grid()
 	plt.legend()
-	plt.title('Resampling, ratio %i' % ratio)
 
 
 def _plot_upsampling():
-	from matplotlib import pyplot as plt
-	from generation.signal_generation import gen_sine, gen_noise, sample_time_index
-	from utils import utils
-	from utils.plot_utils import plot_fft
 
 	class IIRNonZOHUpsampler(IIRUpsampler):
 		def __init__(self, ratio):
@@ -450,7 +449,8 @@ def _plot_upsampling():
 	# But without it, ButterworthUpsampler aliased components disappear
 	window = np.blackman
 
-	plt.figure()
+	fig = plt.figure()
+	fig.suptitle('Upsamplers, ratio %i' % ratio)
 
 	print('Input RMS: %.2f dB' % utils.to_dB(utils.rms(x)))
 
@@ -478,7 +478,6 @@ def _plot_upsampling():
 	plt.xlim([0, t[period_samp - 1]])
 	plt.grid()
 	plt.legend()
-	plt.title('Upsamplers, ratio %i' % ratio)
 
 	plt.subplot(1, 2, 2)
 	plt.grid()
@@ -486,9 +485,6 @@ def _plot_upsampling():
 
 
 def _plot_downsampling(n_samp=4096):
-	from matplotlib import pyplot as plt
-	from generation.signal_generation import gen_sine
-	from utils import plot_utils, utils
 
 	sample_rate = 192000.0
 	ratio = 4
@@ -541,19 +537,16 @@ def _plot_downsampling(n_samp=4096):
 	amp8_dB = utils.to_dB(amp8)
 	amp16_dB = utils.to_dB(amp16)
 
-	plt.figure()
+	fig = plt.figure()
+	fig.suptitle('192k-48k IIR downsampler frequency response')
 	plt.plot(freqs, amp4_dB, '.-', label='order 4')
 	plt.plot(freqs, amp8_dB, '.-', label='order 8')
 	plt.plot(freqs, amp16_dB, '.-', label='order 16')
 	plt.grid()
 	plt.legend()
-	plt.title('192k-48k Downsampler frequency response')
 
 
 def _plot_freq_domain_sweep(ratio):
-	from matplotlib import pyplot as plt
-	from generation.signal_generation import gen_freq_sweep_sine
-	from utils import plot_utils
 
 	n_samp = 2**15
 
@@ -573,7 +566,8 @@ def _plot_freq_domain_sweep(ratio):
 	y_down = ds.process_vector(x)
 	y_up = us.process_vector(x)
 
-	plt.figure()
+	fig = plt.figure()
+	fig.suptitle('Sine sweep, IIR downsampled & upsampled')
 
 	plt.subplot(3, 1, 1)
 	plot_utils.plot_spectrogram(x, sample_rate=sr, nfft=nfft, log=False)
@@ -592,7 +586,6 @@ def _plot_freq_domain_sweep(ratio):
 
 
 def plot(args):
-	from matplotlib import pyplot as plt
 	_plot_time_domain_sweep(n_samp=512, ratio=4)
 	_plot_upsampling()
 	_plot_downsampling()
