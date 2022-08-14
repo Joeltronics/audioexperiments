@@ -12,8 +12,9 @@ class FractionalDelayAllpass(ProcessorBase):
 
 	# https://ccrma.stanford.edu/~jos/pasp/First_Order_Allpass_Interpolation.html
 	def __init__(self, delay_samples: float):
-		self.eta = (1.0 - delay_samples) / (1.0 + delay_samples)
 		self.z1 = 0.
+		self.eta = None
+		self.set_delay(delay_samples)
 
 	def set_delay(self, delay_samples: float):
 		self.eta = (1.0 - delay_samples) / (1.0 + delay_samples)

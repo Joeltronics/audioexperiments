@@ -46,6 +46,7 @@ MODULES = [
 	'overdrive.overdrive',
 	'overdrive.tanh_fb',
 	'resampling.resamplers',
+	'resampling.upsampler_comparison',
 	'solvers.solvers',
 	'utils.approx_equal',
 	'utils.utils',

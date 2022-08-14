@@ -5,6 +5,7 @@ import math
 from matplotlib import pyplot as plt
 from typing import Union, Optional, Iterable, List, Callable, Tuple
 
+from utils.fft import do_fft
 from utils import utils
 from analysis.freq_response import get_discrete_sine_sweep_freq_response
 
@@ -18,6 +19,9 @@ def plot_fft(
 		dB=True,
 		window: Union[bool, Callable]=True,
 		noise_floor=0.0,
+		min_dB: Optional[float]=None,
+		ax=None,
+		normalize=False,
 		**kwargs):
 	"""
 
@@ -33,35 +37,34 @@ def plot_fft(
 	:return:
 	"""
 
-	if window is True:
-		data = data * np.hamming(len(data))
-	elif window:
-		data = data * window(len(data))
+	result = do_fft(data, sample_rate=sample_rate, nfft=nfft, window=window, normalize=normalize)
 
-	if nfft is not None:
-		data_fft = np.fft.fft(data, n=nfft)
-	else:
-		data_fft = np.fft.fft(data)
+	# TODO: deprecate noise_floor
+	result.full_complex_result += noise_floor
 
 	if fmt is None:
 		fmt = '-'
 
-	fft_len = len(data_fft)
-	data_len = fft_len // 2
-	data_fft = data_fft[0:data_len]
-	data_fft = np.abs(data_fft)
-	data_fft += noise_floor
+	data_fft = result.magnitude
+
+	# fft_len = len(data_fft)
+	# data_len = fft_len // 2
+	# data_fft = data_fft[0:data_len]
+	# data_fft = np.abs(data_fft)
+	# data_fft += noise_floor
+
+	f = result.bin_centers
 
 	if dB:
-		data_fft = utils.to_dB(data_fft)
+		data_fft = utils.to_dB(data_fft, min_dB=min_dB)
 
-	f = np.linspace(0, sample_rate/2.0, num=data_len, endpoint=False)
-	
-	# Make plot based on bin center instead of edge
-	f += (f[1] - f[0]) / 2.0
-
-	plot_fn = plt.semilogx if log else plt.plot
-	plot_fn(f, data_fft, fmt, **kwargs)
+	if ax is None:
+		plot_fn = plt.semilogx if log else plt.plot
+		plot_fn(f, data_fft, fmt, **kwargs)
+	elif log:
+		ax.semilogx(f, data_fft, fmt, **kwargs)
+	else:
+		ax.plot(f, data_fft, fmt, **kwargs)
 
 
 def stem_plot_freqs(freqs, data_dB, noise_floor_dB=120, set_lims=True, **kwargs):
