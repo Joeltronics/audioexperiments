@@ -55,7 +55,7 @@ class FftResult:
 
 def do_fft(
 		data,
-		sample_rate,
+		sample_rate = 1.0,
 		nfft: Optional[int] = None,
 		window: Union[bool, Callable] = True,
 		min_dB: Optional[float] = None,

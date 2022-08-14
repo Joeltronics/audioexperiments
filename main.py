@@ -8,6 +8,7 @@ import warnings
 
 
 MODULES = [
+	'analysis.cepstrum',
 	'analysis.distortion',
 	'analysis.freq_response',
 	'analysis.linearity',
@@ -39,6 +40,7 @@ MODULES = [
 	'filters.zdf.zdf_mystran',
 	'generation.additive',
 	'generation.lfsr',
+	'generation.min_phase',
 	'generation.multi_lfsr',
 	'generation.polyblep',
 	'generation.signal_generation',
